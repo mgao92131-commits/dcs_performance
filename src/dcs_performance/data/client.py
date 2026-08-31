@@ -1,9 +1,4 @@
-"""The boundary for reading DCS data.
-
-No database or network implementation belongs in this phase.  Rules may keep
-an implementation of this protocol during construction, while their public
-``evaluate`` method remains time-range-only.
-"""
+"""The only data interface visible to assessment rules."""
 
 from datetime import datetime
 from typing import Protocol, runtime_checkable
@@ -21,14 +16,25 @@ class DcsDataClient(Protocol):
         start_time: datetime,
         end_time: datetime,
     ) -> list[HistorySample]:
-        """Return historical tag samples in the requested time range."""
+        """Return one TAG's raw Historian samples in the requested range."""
 
         ...
+
+    def get_histories(
+        self,
+        tags: list[str],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> dict[str, list[HistorySample]]:
+        """Return multiple TAG histories through controlled client requests."""
+
+        ...
+
     def get_events(
         self,
         start_time: datetime,
         end_time: datetime,
     ) -> list[DcsEvent]:
-        """Return raw DCS events in the requested time range."""
+        """Return all raw events in the fixed half-open time range."""
 
         ...

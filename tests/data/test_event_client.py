@@ -1,0 +1,90 @@
+from datetime import datetime, timezone
+
+import pytest
+
+from dcs_performance.data.dcs_service import DcsServiceClient
+from dcs_performance.data.errors import DcsArgumentError, DcsDataIntegrityError
+from dcs_performance.data.parsers import EVENT_COLUMNS
+
+from .support import FakeTransport, event_response, json_response, make_csv
+from .test_history_client import SERVICE_INFO
+
+
+def _event_body(timestamp="2026-08-30T08:30:00.123", frac_sec=123, ordinal=1):
+    return make_csv(
+        EVENT_COLUMNS,
+        [[
+            timestamp,
+            frac_sec,
+            ordinal,
+            "Alarm",
+            "High",
+            "Process",
+            "Area",
+            "Node",
+            "Unit",
+            "Module",
+            "Module description",
+            "Attribute",
+            "Active",
+            "HI",
+            "Description 1",
+            "Description 2",
+            "false",
+        ]],
+    )
+
+
+def test_get_events_returns_raw_events_for_fixed_half_open_range():
+    transport = FakeTransport(
+        [
+            json_response(SERVICE_INFO),
+            event_response(_event_body(), rows=1, has_more=False),
+        ]
+    )
+    client = DcsServiceClient("http://service", transport=transport, event_page_limit=50)
+
+    events = client.get_events(
+        datetime(2026, 8, 30, 8),
+        datetime(2026, 8, 30, 9),
+    )
+
+    assert len(events) == 1
+    assert events[0].event_type == "Alarm"
+    assert transport.calls[1] == (
+        "/api/v1/events",
+        {
+            "from": "2026-08-30T08:00:00",
+            "to": "2026-08-30T09:00:00",
+            "limit": 50,
+        },
+    )
+
+
+def test_get_events_rejects_aware_datetime_before_network_access():
+    client = DcsServiceClient("http://service", transport=FakeTransport([]))
+    with pytest.raises(DcsArgumentError):
+        client.get_events(
+            datetime(2026, 8, 30, 8, tzinfo=timezone.utc),
+            datetime(2026, 8, 30, 9),
+        )
+
+
+def test_event_integrity_error_is_not_converted_to_empty_result():
+    transport = FakeTransport(
+        [
+            json_response(SERVICE_INFO),
+            DcsDataIntegrityError(
+                "retention gap",
+                status_code=409,
+                code="retention_gap",
+            ),
+        ]
+    )
+    client = DcsServiceClient("http://service", transport=transport)
+
+    with pytest.raises(DcsDataIntegrityError) as caught:
+        client.get_events(datetime(2026, 8, 30, 8), datetime(2026, 8, 30, 9))
+
+    assert caught.value.code == "retention_gap"
+

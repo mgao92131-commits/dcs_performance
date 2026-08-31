@@ -61,6 +61,30 @@ pytest
 
 也可以直接在项目根目录运行 `pytest`；`pyproject.toml` 已为测试配置 `src` 路径。
 
+## DCS 数据访问层
+
+第二阶段的数据访问实现位于 `src/dcs_performance/data/`，规则层只依赖
+`DcsDataClient`。正式客户端通过构造参数接收 dcs-service V1 的 Base URL：
+
+```python
+from dcs_performance.data import DcsServiceClient
+
+client = DcsServiceClient(
+    base_url="http://127.0.0.1:18080",
+)
+history = client.get_history("TAG1", start_time, end_time)
+events = client.get_events(start_time, end_time)
+```
+
+数据层负责 HTTP GET、URL 编码、CSV Schema、源时区、错误分类、有限重试和
+Event 固定范围分页。请求时间是 DCS 源本地的 naive `datetime`，不是 UTC；规则
+不需要接触 HTTP、CSV、Header 或 Event cursor。协议原文仍以
+[`docs/API-ACCESS.zh-CN.md`](docs/API-ACCESS.zh-CN.md) 为准，客户端使用说明见
+[`docs/data-client.md`](docs/data-client.md)。
+
+本阶段不要求本地运行 dcs-service；默认 pytest 全部使用内存 FakeTransport。
+人工连接真实服务时使用 [`experiments/dcs_service/probe.py`](experiments/dcs_service/probe.py)。
+
 ## 目录结构
 
 ```text
