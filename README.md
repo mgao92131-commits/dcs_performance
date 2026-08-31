@@ -2,7 +2,7 @@
 
 `dcs_performance` 是一个用于基于 DCS 历史数据和事件数据开展规则化绩效考核的 Python 项目。
 
-当前提交只完成第一阶段的项目骨架和核心接口，不包含真实生产考核逻辑，不连接 DCS 或数据库，也不实现正式的三班两倒排班算法。
+当前版本包含标准三班两倒排班模块，但仍不包含真实生产考核逻辑，不连接 DCS 或数据库。
 
 ## 核心职责分离
 
@@ -12,7 +12,7 @@
 | `Rule config` | 保存规则名称、启用状态、考核时间偏移、阈值/参数和评分配置 |
 | `Shift` | 表示已经确定的“谁在什么时间上班” |
 | `AssessmentWindow` | 将班次时间和规则配置转换为实际传给 `Rule.evaluate()` 的时间范围 |
-| `ShiftResolver` / `ShiftCalendar` | 提供班次解析和未来排班日历的接口；第一阶段不实现正式排班算法 |
+| `ShiftResolver` / `ShiftCalendar` | 根据配置计算班次并解析时间所属的班组/班次 |
 | `Assignment` | 将考核事件归属到班组/班次；第一阶段只提供基础数据结构和单班实现 |
 | `Engine` | 加载启用规则、计算考核窗口、执行规则并收集事件 |
 
@@ -38,10 +38,47 @@ src/dcs_performance/rules/<rule_id>/
 
 第一阶段的 `example_rule` 是一个不访问数据、始终返回空事件列表的接口示例。不存在集中维护所有规则参数的 `rules.json`。
 
+## 三班两倒排班
+
+排班配置位于 JSON 文件中。`reference_date` 只表示轮换数组第 0 项对应的日期；它
+必须由生产部署者替换为已经确认的实际基准日期，示例文件中的日期不是生产基准。
+当前只支持 A/B/C 三个班组、08:00-20:00 白班和 20:00-次日 08:00 夜班。
+
+```python
+from datetime import datetime
+from pathlib import Path
+
+from dcs_performance.shifts import (
+    CalendarShiftResolver,
+    ThreeTeamTwoShiftCalendar,
+    load_schedule_config,
+)
+
+config = load_schedule_config(
+    Path("src/dcs_performance/shifts/schedule.example.json")
+)
+calendar = ThreeTeamTwoShiftCalendar(config)
+resolver = CalendarShiftResolver(calendar)
+
+# 这是示例配置下的演示日期，不代表生产现场的实际班组。
+shift = resolver.resolve(datetime(2026, 9, 10, 14, 0))
+print(shift.team_id, shift.shift_type, shift.start_time, shift.end_time)
+```
+
+`calendar.get_shifts(start_time, end_time)` 返回与查询范围相交的全部班次，使用
+`shift.start_time < end_time and shift.end_time > start_time` 判断交集。夜班归属于
+它开始的自然日，所有时间区间都采用 `[start_time, end_time)`。
+
+当前排班模块只处理固定标准排班，不支持加班、调班、替班、临时班次、节假日特殊
+班次或人工覆盖排班。
+
 ## 基础执行链路
 
 ```text
-Shift
+ShiftScheduleConfig
+  -> ThreeTeamTwoShiftCalendar
+  -> CalendarShiftResolver
+  -> Shift
   -> RuleLoader.load_enabled()
   -> build_assessment_window(shift, rule_config)
   -> Rule.evaluate(window.start_time, window.end_time)

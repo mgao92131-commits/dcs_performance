@@ -31,10 +31,11 @@ Shift
 
 ### `shifts/`
 
-`Shift` 只表达已经解析好的班次。`ShiftResolver` 和 `ShiftCalendar` 只定义
-边界；`StaticShiftResolver` 仅供测试/实验使用，不代表正式三班两倒算法。
-`assignment.py` 提供事件归属协议和单班事件的基础实现。跨班事件拆分策略被
-明确延后。
+`Shift` 只表达已经解析好的班次。`schedule.py` 负责读取并严格验证固定标准三班
+两倒的 JSON 配置，`ThreeTeamTwoShiftCalendar` 负责按配置周期生成班次，
+`CalendarShiftResolver` 通过 Calendar 解析时间所属班次；`StaticShiftResolver`
+仍供测试/实验使用。`assignment.py` 提供事件归属协议和单班事件的基础实现。
+跨班事件拆分策略被明确延后。
 
 ### `rules/`
 
@@ -56,7 +57,7 @@ Shift
 ## 当前明确不做的事情
 
 - PostgreSQL、DCS 数据库或外部服务器连接
-- 正式三班两倒、加班、调班和临时替班算法
+- 加班、调班、替班、临时班次、节假日特殊班次和人工覆盖排班
 - 真实乙二醇高报或其他生产考核逻辑
 - Web/API、数据库结果存储和复杂评分体系
 - Python entry points 插件框架
