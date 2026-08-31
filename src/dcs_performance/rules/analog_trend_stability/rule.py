@@ -1,0 +1,447 @@
+"""Assessment rule for independent analog trend stability analyses."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any
+
+from dcs_performance.core.event import AssessmentEvent
+from dcs_performance.data.client import DcsDataClient
+from dcs_performance.data.errors import DcsHistoryQueryTooLargeError
+from dcs_performance.data.models import HistorySample
+from dcs_performance.engine.loader import RuleLoadError
+
+from dcs_performance.rules.analog_trend_stability.config import (
+    AnalogTrendStabilityConfig,
+    PointConfig,
+    parse_config,
+)
+from dcs_performance.rules.analog_trend_stability.detector import (
+    AnalogTrendStabilityDetector,
+    DriftOccurrence,
+    StabilityOccurrence,
+)
+from dcs_performance.rules.analog_trend_stability.trend import (
+    calculate_drift,
+    calculate_trend,
+    split_numeric_segments,
+)
+
+
+DEFAULT_RULE_ID = "analog_trend_stability"
+DEFAULT_RULE_NAME = "连续量趋势稳定性考核"
+
+
+@dataclass(frozen=True)
+class QueryGroup:
+    """Points that can share one batch history request."""
+
+    points: tuple[PointConfig, ...]
+    tags: tuple[str, ...]
+    query_start: datetime
+    query_end: datetime
+    left_padding: timedelta
+    right_padding: timedelta
+
+    @property
+    def start_time(self) -> datetime:
+        """Alias for the start of the planned history query."""
+
+        return self.query_start
+
+    @property
+    def end_time(self) -> datetime:
+        """Alias for the end of the planned history query."""
+
+        return self.query_end
+
+
+class QueryPlanner:
+    """Group points by their independently calculated history padding."""
+
+    @staticmethod
+    def plan(
+        points: Iterable[PointConfig],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> tuple[QueryGroup, ...]:
+        _validate_range(start_time, end_time)
+        groups: dict[tuple[timedelta, timedelta], list[PointConfig]] = {}
+        for point in points:
+            if not isinstance(point, PointConfig):
+                raise TypeError("query planner input must contain PointConfig values")
+            if not point.enabled:
+                continue
+            left_padding, right_padding = _point_padding(point)
+            groups.setdefault((left_padding, right_padding), []).append(point)
+
+        planned: list[QueryGroup] = []
+        for (left_padding, right_padding), group_points in groups.items():
+            tags = tuple(dict.fromkeys(point.history_tag for point in group_points))
+            planned.append(
+                QueryGroup(
+                    points=tuple(group_points),
+                    tags=tags,
+                    query_start=start_time - left_padding,
+                    query_end=end_time + right_padding,
+                    left_padding=left_padding,
+                    right_padding=right_padding,
+                )
+            )
+        return tuple(planned)
+
+    # A more explicit spelling for callers that use a planning verb.
+    build = plan
+
+
+# Compatibility spelling for callers that model each request as a plan.
+QueryPlan = QueryGroup
+
+
+class Rule:
+    """Read analog histories, calculate point-local metrics, and emit events."""
+
+    id = DEFAULT_RULE_ID
+    name = DEFAULT_RULE_NAME
+
+    def __init__(
+        self,
+        data_client: DcsDataClient | None = None,
+        config: Mapping[str, Any] | None = None,
+    ) -> None:
+        if data_client is None:
+            raise ValueError("analog_trend_stability requires a data client")
+        if not callable(getattr(data_client, "get_histories", None)):
+            raise TypeError("data_client must provide get_histories()")
+        if config is None or not isinstance(config, Mapping):
+            raise RuleLoadError("analog_trend_stability config must be an object")
+
+        try:
+            parsed = parse_config(config)
+        except Exception as exc:
+            if isinstance(exc, RuleLoadError):
+                raise
+            raise RuleLoadError(
+                "could not validate analog_trend_stability configuration: "
+                f"{exc}"
+            ) from exc
+
+        self.data = data_client
+        self.data_client = data_client
+        self.config = dict(config)
+        self.typed_config: AnalogTrendStabilityConfig = parsed
+        self.points = parsed.points
+        self.id = parsed.id
+        self.name = parsed.name
+        self.query_planner = QueryPlanner()
+        self.detector = AnalogTrendStabilityDetector()
+
+    def evaluate(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[AssessmentEvent]:
+        """Evaluate only the requested responsibility range.
+
+        Query padding is calculated separately for every point, while points
+        with identical padding share one ``get_histories`` request.  Findings
+        may overlap the request boundary, but returned intervals are always
+        clipped to ``[start_time, end_time]``.
+        """
+
+        _validate_range(start_time, end_time)
+        enabled_points = tuple(point for point in self.points if point.enabled)
+        events: list[AssessmentEvent] = []
+
+        for group in QueryPlanner.plan(enabled_points, start_time, end_time):
+            raw_histories = self._get_histories(
+                list(group.tags),
+                group.query_start,
+                group.query_end,
+            )
+            if not isinstance(raw_histories, Mapping):
+                raise TypeError("get_histories() must return a tag-to-history mapping")
+
+            for point in group.points:
+                raw_samples = raw_histories.get(point.history_tag, [])
+                segments = split_numeric_segments(
+                    raw_samples,
+                    point.quality.max_gap_seconds,
+                )
+                for segment_id, segment in enumerate(segments):
+                    trend_points = calculate_trend(
+                        segment,
+                        point.trend,
+                        segment_id=segment_id,
+                    )
+                    if not trend_points:
+                        continue
+
+                    observation_end = segment[-1].timestamp
+                    if point.stability.enabled:
+                        stability_occurrences = self.detector.detect_stability(
+                            trend_points,
+                            point.stability,
+                            observation_end=observation_end,
+                        )
+                        events.extend(
+                            self._stability_events(
+                                point,
+                                stability_occurrences,
+                                start_time,
+                                end_time,
+                            )
+                        )
+
+                    if point.drift.enabled:
+                        drift_points = calculate_drift(
+                            trend_points,
+                            point.drift.windows,
+                        )
+                        drift_occurrences = self.detector.detect_drift(
+                            drift_points,
+                            point.drift,
+                            observation_end=observation_end,
+                        )
+                        events.extend(
+                            self._drift_events(
+                                point,
+                                drift_occurrences,
+                                start_time,
+                                end_time,
+                            )
+                        )
+
+        events.sort(
+            key=lambda event: (
+                event.start_time,
+                str(event.data.get("point_id", "")),
+                str(event.data.get("event_type", "")),
+                str(event.data.get("direction", "")),
+            )
+        )
+        return events
+
+    def _get_histories(
+        self,
+        tags: list[str],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> Mapping[str, list[HistorySample]]:
+        """Read one planned batch, retrying long ranges in safe time slices.
+
+        The public data-client protocol remains unchanged.  The deployed DCS
+        service rejects History spans longer than 24 hours, while an
+        assessment window may be several days.  If that service-specific
+        response is received, retain the point-group batching and retry the
+        same TAG set in 12-hour slices, merging boundary duplicates.
+        """
+
+        try:
+            result = self.data_client.get_histories(tags, start_time, end_time)
+        except DcsHistoryQueryTooLargeError:
+            return _get_histories_in_chunks(
+                self.data_client,
+                tags,
+                start_time,
+                end_time,
+            )
+        if not isinstance(result, Mapping):
+            raise TypeError("get_histories() must return a tag-to-history mapping")
+        return result
+
+    def _stability_events(
+        self,
+        point: PointConfig,
+        occurrences: Iterable[StabilityOccurrence],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[AssessmentEvent]:
+        events: list[AssessmentEvent] = []
+        for occurrence in occurrences:
+            clipped = _clip_interval(
+                occurrence.start_time,
+                occurrence.end_time,
+                start_time,
+                end_time,
+            )
+            if clipped is None:
+                continue
+            event_start, event_end = clipped
+            severity = occurrence.severity
+            event_type = "stability_deviation"
+            events.append(
+                AssessmentEvent(
+                    start_time=event_start,
+                    end_time=event_end,
+                    message=f"{point.id} 短周期波动异常",
+                    data={
+                        "point_id": point.id,
+                        "history_tag": point.history_tag,
+                        "event_type": event_type,
+                        "severity": severity,
+                        "score_key": f"{event_type}.{severity}",
+                        "duration_seconds": (event_end - event_start).total_seconds(),
+                        "max_abs_deviation": occurrence.max_abs_deviation,
+                        "mean_abs_deviation": occurrence.mean_abs_deviation,
+                        "trend_method": point.trend.method,
+                        "trend_window_seconds": point.trend.window_seconds,
+                        "event_key": _event_key(
+                            point.id,
+                            event_type,
+                            None,
+                            event_start,
+                        ),
+                    },
+                )
+            )
+        return events
+
+    def _drift_events(
+        self,
+        point: PointConfig,
+        occurrences: Iterable[DriftOccurrence],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[AssessmentEvent]:
+        events: list[AssessmentEvent] = []
+        for occurrence in occurrences:
+            clipped = _clip_interval(
+                occurrence.start_time,
+                occurrence.end_time,
+                start_time,
+                end_time,
+            )
+            if clipped is None:
+                continue
+            event_start, event_end = clipped
+            event_type = "trend_drift"
+            evidence = [
+                {
+                    "window_id": item.window_id,
+                    "window_seconds": item.window_seconds,
+                    "peak_change": item.peak_change,
+                }
+                for item in occurrence.evidence
+            ]
+            events.append(
+                AssessmentEvent(
+                    start_time=event_start,
+                    end_time=event_end,
+                    message=f"{point.id} 趋势漂移{_direction_text(occurrence.direction)}异常",
+                    data={
+                        "point_id": point.id,
+                        "history_tag": point.history_tag,
+                        "event_type": event_type,
+                        "direction": occurrence.direction,
+                        "severity": occurrence.severity,
+                        "score_key": f"{event_type}.{occurrence.severity}",
+                        "duration_seconds": (event_end - event_start).total_seconds(),
+                        "evidence": evidence,
+                        "trend_method": point.trend.method,
+                        "trend_window_seconds": point.trend.window_seconds,
+                        "event_key": _event_key(
+                            point.id,
+                            event_type,
+                            occurrence.direction,
+                            event_start,
+                        ),
+                    },
+                )
+            )
+        return events
+
+
+def _point_padding(point: PointConfig) -> tuple[timedelta, timedelta]:
+    if point.trend.alignment == "centered":
+        trend_left = point.trend.window_seconds / 2.0
+        trend_right = point.trend.window_seconds / 2.0
+    else:
+        trend_left = point.trend.window_seconds
+        trend_right = 0.0
+
+    left_padding = trend_left + point.max_drift_window_seconds
+    return timedelta(seconds=left_padding), timedelta(seconds=trend_right)
+
+
+_HISTORY_FALLBACK_CHUNK = timedelta(hours=12)
+
+
+def _get_histories_in_chunks(
+    data_client: DcsDataClient,
+    tags: list[str],
+    start_time: datetime,
+    end_time: datetime,
+) -> dict[str, list[HistorySample]]:
+    """Read a long batch in chronological slices and remove edge duplicates."""
+
+    merged: dict[str, list[HistorySample]] = {tag: [] for tag in tags}
+    cursor = start_time
+    while cursor < end_time:
+        chunk_end = min(cursor + _HISTORY_FALLBACK_CHUNK, end_time)
+        result = data_client.get_histories(tags, cursor, chunk_end)
+        if not isinstance(result, Mapping):
+            raise TypeError("get_histories() must return a tag-to-history mapping")
+        for tag in tags:
+            samples = result.get(tag, [])
+            if not isinstance(samples, list):
+                raise TypeError("get_histories() values must be lists of HistorySample")
+            merged[tag].extend(samples)
+        cursor = chunk_end
+
+    for tag, samples in merged.items():
+        unique: list[HistorySample] = []
+        seen: set[tuple[datetime, int, str]] = set()
+        for sample in samples:
+            if not isinstance(sample, HistorySample):
+                raise TypeError("get_histories() values must contain HistorySample values")
+            key = (sample.timestamp, sample.sequence_no, sample.value)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(sample)
+        merged[tag] = unique
+    return merged
+
+
+def _clip_interval(
+    event_start: datetime,
+    event_end: datetime,
+    start_time: datetime,
+    end_time: datetime,
+) -> tuple[datetime, datetime] | None:
+    clipped_start = max(event_start, start_time)
+    clipped_end = min(event_end, end_time)
+    if clipped_end <= clipped_start:
+        return None
+    return clipped_start, clipped_end
+
+
+def _event_key(
+    point_id: str,
+    event_type: str,
+    direction: str | None,
+    start_time: datetime,
+) -> str:
+    direction_text = direction or "none"
+    return (
+        f"{DEFAULT_RULE_ID}:{point_id}:{event_type}:"
+        f"{direction_text}:{start_time.isoformat()}"
+    )
+
+
+def _direction_text(direction: str) -> str:
+    return "上升" if direction == "up" else "下降"
+
+
+def _validate_range(start_time: datetime, end_time: datetime) -> None:
+    if not isinstance(start_time, datetime) or not isinstance(end_time, datetime):
+        raise TypeError("start_time and end_time must be datetime values")
+    if (start_time.tzinfo is None) != (end_time.tzinfo is None):
+        raise ValueError(
+            "start_time and end_time must both be timezone-naive or timezone-aware"
+        )
+    if end_time <= start_time:
+        raise ValueError("end_time must be after start_time")

@@ -1,0 +1,69 @@
+{
+  "id": "analog_trend_stability",
+  "name": "连续量趋势稳定性考核",
+  "enabled": true,
+  "assessment_window": {
+    "start_offset_minutes": 0,
+    "end_offset_minutes": 0
+  },
+  "parameters": {
+    "points": [
+      {
+        "id": "LICA-012019",
+        "history_tag": "LICA-012019/PID1/PV.CV",
+        "enabled": true,
+        "quality": {
+          "max_gap_seconds": 60
+        },
+        "trend": {
+          "method": "rolling_mean",
+          "alignment": "centered",
+          "window_seconds": 1800,
+          "min_samples": 30
+        },
+        "stability": {
+          "enabled": true,
+          "warning_deviation": 0.08,
+          "high_deviation": 0.1,
+          "min_duration_seconds": 60,
+          "merge_gap_seconds": 20
+        },
+        "drift": {
+          "enabled": true,
+          "merge_gap_seconds": 60,
+          "windows": [
+            {
+              "id": "short",
+              "window_seconds": 1800,
+              "warning_change": 0.15,
+              "high_change": 0.2,
+              "min_duration_seconds": 300
+            },
+            {
+              "id": "long",
+              "window_seconds": 3600,
+              "warning_change": 0.23,
+              "high_change": 0.3,
+              "min_duration_seconds": 300
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "scoring": {
+    "default_score_per_event": 1,
+    "by_point": {
+      "LICA-012019": {
+        "stability_deviation": {
+          "warning": 1,
+          "high": 2
+        },
+        "trend_drift": {
+          "warning": 1,
+          "high": 2
+        }
+      }
+    }
+  }
+}
