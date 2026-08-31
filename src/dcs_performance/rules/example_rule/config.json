@@ -1,0 +1,14 @@
+{
+  "id": "example_rule",
+  "name": "示例考核规则",
+  "enabled": true,
+  "assessment_window": {
+    "start_offset_minutes": 20,
+    "end_offset_minutes": 0
+  },
+  "scoring": {
+    "score_per_event": -2,
+    "max_penalty": -10
+  },
+  "parameters": {}
+}
