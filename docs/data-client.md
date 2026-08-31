@@ -34,7 +34,7 @@ class Rule:
 
 ```python
 DcsServiceClient(
-    base_url="http://127.0.0.1:18080",
+    base_url="http://192.168.1.10:8088",
     timeout_seconds=70,
     total_timeout_seconds=120,
     max_retries=4,
@@ -133,7 +133,7 @@ dcs-service 运行。真实服务人工检查使用：
 
 ```bash
 python experiments/dcs_service/probe.py \
-  --base-url http://127.0.0.1:18080 \
+  --base-url http://192.168.1.10:8088 \
   --tag TI-021007_AI1_PV.CV \
   --minutes 5
 ```

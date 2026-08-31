@@ -10,14 +10,14 @@ import sys
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from dcs_performance.data.dcs_service import DcsServiceClient
+from dcs_performance.data import DEFAULT_DCS_SERVICE_BASE_URL, DcsServiceClient
 from dcs_performance.data.errors import DcsServiceError
 from dcs_performance.data.parsers import parse_timestamp
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Probe a dcs-service V1 endpoint")
-    parser.add_argument("--base-url", default="http://127.0.0.1:18080")
+    parser.add_argument("--base-url", default=DEFAULT_DCS_SERVICE_BASE_URL)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--minutes", type=int, default=5)
     parser.add_argument("--from", dest="from_time")

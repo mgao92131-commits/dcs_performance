@@ -7,7 +7,7 @@ V1 协议依次检查 `/health`、`/api/v1/info`、`/api/v1/tag`、History 和 E
 
 ```bash
 python experiments/dcs_service/probe.py \
-  --base-url http://127.0.0.1:18080 \
+  --base-url http://192.168.1.10:8088 \
   --tag TI-021007_AI1_PV.CV \
   --minutes 5
 ```
@@ -16,11 +16,10 @@ python experiments/dcs_service/probe.py \
 
 ```bash
 python experiments/dcs_service/probe.py \
-  --base-url http://127.0.0.1:18080 \
+  --base-url http://192.168.1.10:8088 \
   --tag TI-021007_AI1_PV.CV \
   --from 2026-08-30T08:00:00 \
   --to 2026-08-30T08:05:00
 ```
 
 脚本不会假设 UTC，不会给时间追加 `Z` 或 offset，也不会打印完整 CSV。
-

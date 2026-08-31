@@ -23,12 +23,60 @@ class AssessmentScorer:
             raise ValueError("rule config scoring must be an object")
 
         point_id = evaluated.event.data.get("point_id")
+        event_type = evaluated.event.data.get("event_type")
+
+        by_point_event_type = scoring.get("by_point_event_type", {})
+        if not isinstance(by_point_event_type, Mapping):
+            raise ValueError(
+                "rule config scoring.by_point_event_type must be an object"
+            )
+        by_event_type = scoring.get("by_event_type", {})
+        if not isinstance(by_event_type, Mapping):
+            raise ValueError("rule config scoring.by_event_type must be an object")
+
         by_point = scoring.get("by_point", {})
         if not isinstance(by_point, Mapping):
             raise ValueError("rule config scoring.by_point must be an object")
 
-        if isinstance(point_id, str) and point_id in by_point:
-            score = _score_value(by_point[point_id], f"scoring.by_point.{point_id}")
+        point_event_scores = None
+        if isinstance(point_id, str) and point_id in by_point_event_type:
+            point_event_scores = by_point_event_type[point_id]
+            if not isinstance(point_event_scores, Mapping):
+                raise ValueError(
+                    "rule config scoring.by_point_event_type."
+                    f"{point_id} must be an object"
+                )
+
+        if (
+            isinstance(event_type, str)
+            and point_event_scores is not None
+            and event_type in point_event_scores
+        ):
+            score = _score_value(
+                point_event_scores[event_type],
+                f"scoring.by_point_event_type.{point_id}.{event_type}",
+            )
+        elif isinstance(event_type, str) and event_type in by_event_type:
+            score = _score_value(
+                by_event_type[event_type],
+                f"scoring.by_event_type.{event_type}",
+            )
+        elif isinstance(point_id, str) and point_id in by_point:
+            point_score = by_point[point_id]
+            if isinstance(point_score, Mapping):
+                score_key = evaluated.event.data.get("score_key")
+                configured_score = _lookup_score_key(point_score, score_key)
+                if configured_score is not None:
+                    score = _score_value(
+                        configured_score,
+                        f"scoring.by_point.{point_id}.{score_key}",
+                    )
+                else:
+                    score = _default_score(scoring)
+            else:
+                # Preserve the original point -> number configuration used by
+                # persistent_high_alarm and existing integrations.
+                score = _score_value(point_score, f"scoring.by_point.{point_id}")
         elif "default_score_per_event" in scoring:
             score = _score_value(
                 scoring["default_score_per_event"],
@@ -39,10 +87,7 @@ class AssessmentScorer:
             # production rule uses the explicit default_score_per_event name.
             score = _score_value(scoring["score_per_event"], "scoring.score_per_event")
         else:
-            raise ValueError(
-                "rule config scoring must define default_score_per_event "
-                "or a matching by_point value"
-            )
+            score = _default_score(scoring)
 
         return AssignedAssessmentEvent(
             rule_id=evaluated.rule_id,
@@ -67,6 +112,41 @@ def _score_value(value: object, field_name: str) -> float:
     if not isfinite(numeric):
         raise ValueError(f"{field_name} must be a finite number")
     return numeric
+
+
+def _default_score(scoring: Mapping[str, object]) -> float:
+    if "default_score_per_event" in scoring:
+        return _score_value(
+            scoring["default_score_per_event"],
+            "scoring.default_score_per_event",
+        )
+    if "score_per_event" in scoring:
+        # Keep the earlier example configuration usable while the production
+        # rule uses the explicit default_score_per_event name.
+        return _score_value(scoring["score_per_event"], "scoring.score_per_event")
+    raise ValueError(
+        "rule config scoring must define a matching event/point score "
+        "or default_score_per_event"
+    )
+
+
+def _lookup_score_key(
+    point_score: Mapping[str, object],
+    score_key: object,
+) -> object | None:
+    """Resolve ``stability_deviation.high`` through nested mappings."""
+
+    if not isinstance(score_key, str) or not score_key:
+        return None
+    if score_key in point_score:
+        return point_score[score_key]
+
+    current: object = point_score
+    for part in score_key.split("."):
+        if not isinstance(current, Mapping) or part not in current:
+            return None
+        current = current[part]
+    return current
 
 
 # Concise compatibility name for callers that refer to the stage as Scoring.

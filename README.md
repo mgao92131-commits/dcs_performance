@@ -159,7 +159,7 @@ pytest
 from dcs_performance.data import DcsServiceClient
 
 client = DcsServiceClient(
-    base_url="http://127.0.0.1:18080",
+    base_url="http://192.168.1.10:8088",
 )
 history = client.get_history("TAG1", start_time, end_time)
 events = client.get_events(start_time, end_time)

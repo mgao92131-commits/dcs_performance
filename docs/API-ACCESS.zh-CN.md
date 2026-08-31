@@ -21,13 +21,13 @@
 假设隧道在调用方电脑提供以下入口：
 
 ```text
-http://127.0.0.1:18080
+http://192.168.1.10:8088
 ```
 
 本文用它作为示例 Base URL：
 
 ```text
-BASE_URL=http://127.0.0.1:18080
+BASE_URL=http://192.168.1.10:8088
 ```
 
 实际端口由服务提供方告知。
@@ -130,7 +130,7 @@ APP%7C2026-08-30T00%3A00%3A00.000
 
 ```http
 GET /health HTTP/1.1
-Host: 127.0.0.1:18080
+Host: 192.168.1.10:8088
 ```
 
 ### 成功响应
@@ -147,7 +147,7 @@ Host: 127.0.0.1:18080
 
 ```http
 GET /api/v1/info HTTP/1.1
-Host: 127.0.0.1:18080
+Host: 192.168.1.10:8088
 ```
 
 ### 响应示例
@@ -680,7 +680,7 @@ parsed_data_rows == X-DCS-Row-Count
 curl --fail-with-body \
   -D history.headers.txt \
   -o history.csv \
-  "http://127.0.0.1:18080/api/v1/history?tag=TI-021007_AI1_PV.CV&from=2026-08-30T08%3A00%3A00&to=2026-08-30T09%3A00%3A00"
+  "http://192.168.1.10:8088/api/v1/history?tag=TI-021007_AI1_PV.CV&from=2026-08-30T08%3A00%3A00&to=2026-08-30T09%3A00%3A00"
 ```
 
 ### Event Range
@@ -689,7 +689,7 @@ curl --fail-with-body \
 curl --fail-with-body \
   -D event.headers.txt \
   -o event.csv \
-  "http://127.0.0.1:18080/api/v1/events?from=2026-08-30T08%3A00%3A00&to=2026-08-30T09%3A00%3A00&limit=1000"
+  "http://192.168.1.10:8088/api/v1/events?from=2026-08-30T08%3A00%3A00&to=2026-08-30T09%3A00%3A00&limit=1000"
 ```
 
 ### Event Cursor
@@ -698,7 +698,7 @@ curl --fail-with-body \
 curl --fail-with-body \
   -D event-next.headers.txt \
   -o event-next.csv \
-  "http://127.0.0.1:18080/api/v1/events?afterTime=2026-08-30T08%3A55%3A00.123&afterFracSec=123&afterOrd=456&sourceGeneration=APP%7C2026-08-30T00%3A00%3A00.000&limit=1000"
+  "http://192.168.1.10:8088/api/v1/events?afterTime=2026-08-30T08%3A55%3A00.123&afterFracSec=123&afterOrd=456&sourceGeneration=APP%7C2026-08-30T00%3A00%3A00.000&limit=1000"
 ```
 
 ## 21. Python：History 示例
@@ -709,7 +709,7 @@ import io
 import urllib.parse
 import urllib.request
 
-base_url = "http://127.0.0.1:18080"
+base_url = "http://192.168.1.10:8088"
 params = urllib.parse.urlencode({
     "tag": "TI-021007_AI1_PV.CV",
     "from": "2026-08-30T08:00:00",
@@ -747,7 +747,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-BASE_URL = "http://127.0.0.1:18080"
+BASE_URL = "http://192.168.1.10:8088"
 
 def get_event_page(params):
     url = BASE_URL + "/api/v1/events?" + urllib.parse.urlencode(params)
@@ -820,7 +820,7 @@ while True:
 $tag = [Uri]::EscapeDataString("TI-021007_AI1_PV.CV")
 $from = [Uri]::EscapeDataString("2026-08-30T08:00:00")
 $to = [Uri]::EscapeDataString("2026-08-30T09:00:00")
-$url = "http://127.0.0.1:18080/api/v1/history?tag=$tag&from=$from&to=$to"
+$url = "http://192.168.1.10:8088/api/v1/history?tag=$tag&from=$from&to=$to"
 
 $request = [Net.HttpWebRequest]::Create($url)
 $request.Method = "GET"

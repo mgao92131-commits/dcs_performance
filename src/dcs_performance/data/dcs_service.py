@@ -34,6 +34,7 @@ from .parsers import (
     parse_history_csv,
     parse_timestamp,
 )
+from .settings import DEFAULT_DCS_SERVICE_BASE_URL
 from .transport import DcsHttpTransport, HttpResponse
 
 
@@ -42,7 +43,7 @@ class DcsServiceClient:
 
     def __init__(
         self,
-        base_url: str,
+        base_url: str = DEFAULT_DCS_SERVICE_BASE_URL,
         *,
         timeout_seconds: float = 70,
         total_timeout_seconds: float | None = 120,

@@ -3,7 +3,11 @@ from datetime import datetime, timedelta
 import pytest
 
 from dcs_performance.data.history_context import (
+    DEFAULT_FORWARD_SEARCH_STEPS,
     DEFAULT_LOOKBACK_STEPS,
+    MAX_FORWARD_QUERY_SPAN,
+    find_next_sample,
+    get_histories_with_previous_samples,
     get_history_with_previous_sample,
 )
 from dcs_performance.data.models import HistorySample
@@ -120,3 +124,174 @@ def test_context_rejects_invalid_ranges_and_missing_client():
 
     with pytest.raises(ValueError, match="end_time must be after"):
         get_history_with_previous_sample(FakeDataClient([[]]), "TAG1", END, START)
+
+
+def test_find_next_sample_finds_target_in_first_chunk():
+    target = sample(START + timedelta(minutes=20), "0")
+    client = FakeDataClient([[target]])
+
+    result = find_next_sample(
+        client,
+        "TAG1",
+        START,
+        lambda item: item.value == "0",
+    )
+
+    assert result == target
+    assert client.calls == [
+        ("TAG1", START, START + timedelta(minutes=30)),
+    ]
+
+
+def test_find_next_sample_uses_non_overlapping_cumulative_chunks():
+    target = sample(START + timedelta(hours=1), "0")
+    client = FakeDataClient([[], [target]])
+    steps = (timedelta(minutes=30), timedelta(hours=2))
+
+    result = find_next_sample(
+        client,
+        "TAG1",
+        START,
+        lambda item: item.value == "0",
+        search_steps=steps,
+    )
+
+    assert result == target
+    assert [call[1:] for call in client.calls] == [
+        (START, START + timedelta(minutes=30)),
+        (START + timedelta(minutes=30), START + timedelta(hours=2)),
+    ]
+
+
+def test_find_next_sample_can_continue_after_an_already_read_cursor():
+    target = sample(START + timedelta(hours=1), "0")
+    cursor = START + timedelta(minutes=30)
+    client = FakeDataClient([[target]])
+
+    result = find_next_sample(
+        client,
+        "TAG1",
+        START,
+        lambda item: item.value == "0",
+        cursor_time=cursor,
+    )
+
+    assert result == target
+    assert client.calls == [
+        ("TAG1", cursor, START + timedelta(hours=2)),
+    ]
+
+
+def test_find_next_sample_sorts_and_deduplicates_chunk_samples():
+    target = sample(START + timedelta(minutes=20), "0", sequence_no=3)
+    duplicate = sample(target.timestamp, "0", sequence_no=3)
+    later = sample(START + timedelta(minutes=25), "0", sequence_no=4)
+    client = FakeDataClient([[later, duplicate, target]])
+
+    result = find_next_sample(
+        client,
+        "TAG1",
+        START,
+        lambda item: item.value == "0",
+    )
+
+    assert result == target
+
+
+def test_find_next_sample_checks_all_default_chunks_and_returns_none():
+    client = FakeDataClient([[], [], [], [], []])
+
+    result = find_next_sample(
+        client,
+        "TAG1",
+        START,
+        lambda item: item.value == "0",
+    )
+
+    assert result is None
+    expected_ranges = []
+    cursor = START
+    for step in DEFAULT_FORWARD_SEARCH_STEPS:
+        horizon_end = START + step
+        while cursor < horizon_end:
+            end = min(horizon_end, cursor + MAX_FORWARD_QUERY_SPAN)
+            expected_ranges.append((cursor, end))
+            cursor = end
+    assert [call[1:] for call in client.calls] == expected_ranges
+
+
+def test_find_next_sample_does_not_swallow_client_errors():
+    class FailingClient:
+        def get_history(self, tag, start_time, end_time):
+            raise RuntimeError("history failed")
+
+    with pytest.raises(RuntimeError, match="history failed"):
+        find_next_sample(
+            FailingClient(),
+            "TAG1",
+            START,
+            lambda item: True,
+        )
+
+
+def test_multi_context_batches_initial_and_only_missing_lookback_tags():
+    class MultiClient:
+        def __init__(self):
+            self.histories = {
+                "TAG1": [sample(START - timedelta(minutes=5), "1")],
+                "TAG2": [sample(START - timedelta(hours=1), "0")],
+                "TAG3": [
+                    sample(START - timedelta(minutes=10), "0"),
+                    sample(START + timedelta(minutes=2), "1"),
+                ],
+            }
+            self.calls = []
+
+        def get_histories(self, tags, start_time, end_time):
+            self.calls.append((list(tags), start_time, end_time))
+            return {
+                tag: [
+                    item
+                    for item in self.histories.get(tag, [])
+                    if start_time <= item.timestamp < end_time
+                ]
+                for tag in tags
+            }
+
+    client = MultiClient()
+
+    result = get_histories_with_previous_samples(
+        client,
+        ["TAG1", "TAG2", "TAG3"],
+        START,
+        END,
+    )
+
+    assert result["TAG1"] == [client.histories["TAG1"][0]]
+    assert result["TAG2"] == [client.histories["TAG2"][0]]
+    assert result["TAG3"] == client.histories["TAG3"]
+    assert client.calls == [
+        (["TAG1", "TAG2", "TAG3"], START, END),
+        (["TAG1", "TAG2", "TAG3"], START - timedelta(minutes=30), START),
+        (["TAG2"], START - timedelta(hours=2), START),
+    ]
+
+
+def test_multi_context_keeps_in_range_samples_and_no_fake_initial_state():
+    class MultiClient:
+        def get_histories(self, tags, start_time, end_time):
+            return {
+                "TAG1": [sample(START + timedelta(minutes=1), "1")],
+                "TAG2": [],
+            }
+
+    result = get_histories_with_previous_samples(
+        MultiClient(),
+        ["TAG1", "TAG2"],
+        START,
+        END,
+        lookback_steps=(timedelta(minutes=30),),
+    )
+
+    assert len(result["TAG1"]) == 1
+    assert result["TAG2"] == []

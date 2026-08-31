@@ -62,3 +62,134 @@ def test_scorer_uses_configured_default_for_unmapped_point():
     assigned = AssessmentScorer().score(evaluated)
 
     assert assigned.score == 1
+
+
+def test_scorer_resolves_point_score_key_without_breaking_numeric_by_point():
+    evaluated = make_evaluated("LA-115077")
+    evaluated = EvaluatedAssessmentEvent(
+        rule_id=evaluated.rule_id,
+        rule_name=evaluated.rule_name,
+        shift=evaluated.shift,
+        window=evaluated.window,
+        event=AssessmentEvent(
+            start_time=evaluated.event.start_time,
+            end_time=evaluated.event.end_time,
+            data={
+                "point_id": "LA-115077",
+                "event_type": "trend_drift",
+                "score_key": "trend_drift.high",
+            },
+        ),
+        config={
+            "scoring": {
+                "default_score_per_event": 1,
+                "by_point": {
+                    "LA-115077": {
+                        "stability_deviation": {"warning": 1, "high": 2},
+                        "trend_drift": {"warning": 1, "high": 2},
+                    }
+                },
+            }
+        },
+    )
+
+    assert AssessmentScorer().score(evaluated).score == 2
+
+
+def test_scorer_uses_default_when_nested_score_key_is_not_configured():
+    evaluated = make_evaluated("LA-115077")
+    evaluated = EvaluatedAssessmentEvent(
+        rule_id=evaluated.rule_id,
+        rule_name=evaluated.rule_name,
+        shift=evaluated.shift,
+        window=evaluated.window,
+        event=AssessmentEvent(
+            start_time=evaluated.event.start_time,
+            end_time=evaluated.event.end_time,
+            data={
+                "point_id": "LA-115077",
+                "score_key": "trend_drift.high",
+            },
+        ),
+        config={
+            "scoring": {
+                "default_score_per_event": 1,
+                "by_point": {"LA-115077": {"trend_drift": {"warning": 3}}},
+            }
+        },
+    )
+
+    assert AssessmentScorer().score(evaluated).score == 1
+
+
+def test_scorer_prefers_point_and_event_type_score():
+    evaluated = make_evaluated("LA-115077")
+    evaluated = EvaluatedAssessmentEvent(
+        rule_id=evaluated.rule_id,
+        rule_name=evaluated.rule_name,
+        shift=evaluated.shift,
+        window=evaluated.window,
+        event=AssessmentEvent(
+            start_time=evaluated.event.start_time,
+            end_time=evaluated.event.end_time,
+            data={
+                "point_id": "LA-115077",
+                "event_type": "switch_timeout",
+            },
+        ),
+        config={
+            "scoring": {
+                "default_score_per_event": 1,
+                "by_event_type": {"switch_timeout": 3},
+                "by_point": {"LA-115077": 4},
+                "by_point_event_type": {
+                    "LA-115077": {"switch_timeout": 7}
+                },
+            }
+        },
+    )
+
+    assert AssessmentScorer().score(evaluated).score == 7
+
+
+def test_scorer_falls_back_from_point_event_type_to_event_type_then_point():
+    evaluated = make_evaluated("LA-115077")
+    evaluated = EvaluatedAssessmentEvent(
+        rule_id=evaluated.rule_id,
+        rule_name=evaluated.rule_name,
+        shift=evaluated.shift,
+        window=evaluated.window,
+        event=AssessmentEvent(
+            start_time=evaluated.event.start_time,
+            end_time=evaluated.event.end_time,
+            data={"point_id": "LA-115077", "event_type": "low_flow"},
+        ),
+        config={
+            "scoring": {
+                "default_score_per_event": 1,
+                "by_event_type": {"low_flow": 3},
+                "by_point": {"LA-115077": 4},
+                "by_point_event_type": {"LA-115077": {"switch_timeout": 7}},
+            }
+        },
+    )
+    assert AssessmentScorer().score(evaluated).score == 3
+
+    evaluated = EvaluatedAssessmentEvent(
+        rule_id=evaluated.rule_id,
+        rule_name=evaluated.rule_name,
+        shift=evaluated.shift,
+        window=evaluated.window,
+        event=AssessmentEvent(
+            start_time=evaluated.event.start_time,
+            end_time=evaluated.event.end_time,
+            data={"point_id": "LA-115077", "event_type": "other"},
+        ),
+        config={
+            "scoring": {
+                "default_score_per_event": 1,
+                "by_point": {"LA-115077": 4},
+            }
+        },
+    )
+    assert AssessmentScorer().score(evaluated).score == 4

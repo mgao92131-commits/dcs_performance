@@ -1,0 +1,44 @@
+{
+  "id": "pump_flow_compliance",
+  "name": "泵组流量考核",
+  "enabled": true,
+  "assessment_window": {
+    "start_offset_minutes": -10,
+    "end_offset_minutes": 10
+  },
+  "parameters": {
+    "points": [
+      {
+        "id": "117P01",
+        "pump_a_tag": "EU-117P01A/DC1/PV_D.CV",
+        "pump_b_tag": "EU-117P01B/DC1/PV_D.CV",
+        "flow_tag": "FIA-117079/AI1/PV.CV",
+        "running_value": "1",
+        "normal_min_flow": 125,
+        "switching_min_flow": 100,
+        "max_switch_duration_seconds": 600
+      },
+      {
+        "id": "115P05",
+        "pump_a_tag": "EU-115P05A/DC1/PV_D.CV",
+        "pump_b_tag": "EU-115P05B/DC1/PV_D.CV",
+        "flow_tag": "FIA-115174/AI1/PV.CV",
+        "running_value": "1",
+        "normal_min_flow": 110,
+        "switching_min_flow": 100,
+        "max_switch_duration_seconds": 600
+      },
+      {
+        "id": "115P03",
+        "pump_a_tag": "EU-115P03A/DC1/PV_D.CV",
+        "pump_b_tag": "EU-115P03B/DC1/PV_D.CV",
+        "flow_tag": "FIA-115074/AI1/PV.CV",
+        "running_value": "1",
+        "normal_min_flow": 110,
+        "switching_min_flow": 100,
+        "max_switch_duration_seconds": 600
+      }
+    ]
+  },
+  "scoring": {}
+}
