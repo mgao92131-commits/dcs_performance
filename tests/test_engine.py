@@ -2,6 +2,7 @@ from datetime import datetime
 
 from dcs_performance.engine.engine import AssessmentEngine
 from dcs_performance.engine.loader import RuleLoader
+from dcs_performance.core.evaluation import EvaluatedAssessmentEvent
 from dcs_performance.shifts.model import Shift
 
 
@@ -49,3 +50,19 @@ def test_engine_loads_example_rule_builds_window_and_collects_events():
         "start_time": datetime(2026, 8, 31, 8, 20),
         "end_time": datetime(2026, 8, 31, 20, 0),
     }
+
+
+def test_engine_run_detailed_preserves_rule_shift_window_and_config():
+    loaded_rule = RuleLoader(data_client=FakeDataClient()).load("example_rule")
+    shift = Shift(
+        team_id="A",
+        shift_type="day",
+        start_time=datetime(2026, 8, 31, 8, 0),
+        end_time=datetime(2026, 8, 31, 20, 0),
+    )
+    engine = AssessmentEngine(loader=OneRuleLoader(loaded_rule))
+
+    detailed = engine.run_detailed(shift)
+
+    assert detailed == []
+    assert isinstance(engine.runner.run_detailed(shift, loaded_rule), list)

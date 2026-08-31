@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 
 import pytest
 
-from dcs_performance.data.errors import DcsArgumentError
+from dcs_performance.data.errors import DcsArgumentError, DcsProtocolError
 from dcs_performance.data.parsers import (
     ensure_naive_datetime,
     format_timestamp,
@@ -48,6 +48,5 @@ def test_aware_datetime_is_rejected(value):
 
 
 def test_timestamp_parser_rejects_timezone_text():
-    with pytest.raises(Exception):
+    with pytest.raises(DcsProtocolError):
         parse_timestamp("2026-08-30T08:00:00+08:00")
-

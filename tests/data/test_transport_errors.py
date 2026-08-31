@@ -3,7 +3,12 @@ from urllib.error import HTTPError
 
 import pytest
 
-from dcs_performance.data.errors import DcsDataIntegrityError, DcsServiceBusyError, DcsServiceError
+from dcs_performance.data.errors import (
+    DcsDataIntegrityError,
+    DcsRequestTimeoutError,
+    DcsServiceBusyError,
+    DcsServiceError,
+)
 from dcs_performance.data.transport import DcsHttpTransport
 
 from .support import FakeUrlopenResponse
@@ -116,3 +121,39 @@ def test_transport_invalid_error_body_keeps_bounded_summary():
     assert caught.value.status_code == 500
     assert len(caught.value.response_body_summary) <= 515
 
+
+def test_transport_total_timeout_stops_retry_backoff_chain():
+    clock = [0.0]
+    calls = []
+
+    def opener(request, timeout):
+        calls.append(timeout)
+        raise HTTPError(
+            request.full_url,
+            429,
+            "busy",
+            {},
+            io.BytesIO(
+                b'{"ok":false,"error":{"code":"service_busy","message":"busy"}}'
+            ),
+        )
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    transport = DcsHttpTransport(
+        "http://service",
+        total_timeout_seconds=2.5,
+        max_retries=4,
+        sleep_fn=sleep,
+        random_fn=lambda: 0.0,
+        monotonic_fn=lambda: clock[0],
+        opener=opener,
+    )
+
+    with pytest.raises(DcsRequestTimeoutError) as caught:
+        transport.get("/health")
+
+    assert caught.value.code == "request_timeout"
+    assert len(calls) == 2
+    assert clock[0] == 1.0

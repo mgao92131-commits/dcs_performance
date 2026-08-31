@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 
 from dcs_performance.data.dcs_service import DcsServiceClient
-from dcs_performance.data.errors import DcsDataIntegrityError
+from dcs_performance.data.errors import DcsDataIntegrityError, DcsProtocolError
 from dcs_performance.data.parsers import EVENT_COLUMNS
 
 from .support import FakeTransport, event_response, json_response, make_csv
@@ -166,6 +166,134 @@ def test_event_page_requires_all_next_cursor_headers_when_has_more():
         ]
     )
     client = DcsServiceClient("http://service", transport=transport)
-    with pytest.raises(Exception, match="cursor"):
+    with pytest.raises(DcsProtocolError, match="cursor"):
         client.get_events(datetime(2026, 8, 30, 8), datetime(2026, 8, 30, 9))
 
+
+def test_event_page_requires_next_cursor_to_match_last_event():
+    transport = FakeTransport(
+        [
+            json_response(SERVICE_INFO),
+            event_response(
+                _rows(("2026-08-30T08:01:00.000", 1, 1)),
+                generation=GENERATION,
+                has_more=True,
+                next_datetime="2026-08-30T08:01:00.000",
+                next_frac_sec=2,
+                next_ord=1,
+            ),
+        ]
+    )
+    client = DcsServiceClient("http://service", transport=transport)
+
+    with pytest.raises(DcsProtocolError) as caught:
+        client.get_events(datetime(2026, 8, 30, 8), datetime(2026, 8, 30, 9))
+
+    assert caught.value.code == "next_cursor_mismatch"
+
+
+def test_event_page_rejects_non_monotonic_cursors():
+    transport = FakeTransport(
+        [
+            json_response(SERVICE_INFO),
+            event_response(
+                _rows(
+                    ("2026-08-30T08:02:00.000", 2, 2),
+                    ("2026-08-30T08:01:00.000", 1, 1),
+                ),
+                rows=2,
+                generation=GENERATION,
+                has_more=False,
+            ),
+        ]
+    )
+    client = DcsServiceClient("http://service", transport=transport)
+
+    with pytest.raises(DcsProtocolError) as caught:
+        client.get_events(datetime(2026, 8, 30, 8), datetime(2026, 8, 30, 9))
+
+    assert caught.value.code == "event_cursor_order"
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    ["2026-08-30T07:59:00.000", "2026-08-30T09:00:00.000"],
+)
+def test_event_range_page_rejects_events_outside_requested_half_open_range(timestamp):
+    transport = FakeTransport(
+        [
+            json_response(SERVICE_INFO),
+            event_response(
+                _rows((timestamp, 1, 1)),
+                generation=GENERATION,
+                has_more=False,
+            ),
+        ]
+    )
+    client = DcsServiceClient("http://service", transport=transport)
+
+    with pytest.raises(DcsProtocolError) as caught:
+        client.get_events(datetime(2026, 8, 30, 8), datetime(2026, 8, 30, 9))
+
+    assert caught.value.code == "event_range_out_of_bounds"
+
+
+def test_event_cursor_page_must_start_after_supplied_cursor():
+    transport = FakeTransport(
+        [
+            json_response(SERVICE_INFO),
+            event_response(
+                _rows(("2026-08-30T08:01:00.000", 1, 1)),
+                generation=GENERATION,
+                has_more=True,
+                next_datetime="2026-08-30T08:01:00.000",
+                next_frac_sec=1,
+                next_ord=1,
+            ),
+            event_response(
+                _rows(("2026-08-30T08:01:00.000", 1, 1)),
+                generation=GENERATION,
+                has_more=False,
+            ),
+        ]
+    )
+    client = DcsServiceClient("http://service", transport=transport)
+
+    with pytest.raises(DcsProtocolError) as caught:
+        client.get_events(datetime(2026, 8, 30, 8), datetime(2026, 8, 30, 9))
+
+    assert caught.value.code == "event_cursor_order"
+
+
+def test_empty_cursor_page_may_repeat_input_cursor_and_finish():
+    empty_body = make_csv(EVENT_COLUMNS, [])
+    transport = FakeTransport(
+        [
+            json_response(SERVICE_INFO),
+            event_response(
+                _rows(("2026-08-30T08:01:00.000", 1, 1)),
+                generation=GENERATION,
+                has_more=True,
+                next_datetime="2026-08-30T08:01:00.000",
+                next_frac_sec=1,
+                next_ord=1,
+            ),
+            event_response(
+                empty_body,
+                rows=0,
+                generation=GENERATION,
+                has_more=False,
+                next_datetime="2026-08-30T08:01:00.000",
+                next_frac_sec=1,
+                next_ord=1,
+            ),
+        ]
+    )
+    client = DcsServiceClient("http://service", transport=transport)
+
+    events = client.get_events(
+        datetime(2026, 8, 30, 8),
+        datetime(2026, 8, 30, 9),
+    )
+
+    assert len(events) == 1

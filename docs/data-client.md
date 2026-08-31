@@ -25,7 +25,10 @@ class Rule:
 ```
 
 规则不负责 HTTP、CSV、URL 编码、响应 Header、错误重试、Event cursor 或
-`sourceGeneration`。
+`sourceGeneration`。需要窗口开始前状态的状态型规则使用
+`data/history_context.py` 的 `get_history_with_previous_sample()`：它先读取
+正常范围，再按 30 分钟、2 小时、12 小时、48 小时回溯，最终只保留最近一条
+前置样本和 `[start_time, end_time)` 内样本；不会假造默认 `0`。
 
 ## `DcsServiceClient`
 
@@ -33,6 +36,7 @@ class Rule:
 DcsServiceClient(
     base_url="http://127.0.0.1:18080",
     timeout_seconds=70,
+    total_timeout_seconds=120,
     max_retries=4,
     event_page_limit=1000,
 )
@@ -44,11 +48,12 @@ DcsServiceClient(
 - `get_info(refresh=False) -> ServiceInfo`：获取并缓存服务能力和源时区；也可调用 `refresh_info()`。
 - `check_tag(tag) -> TagInfo`：保留 `HistoryTagOK`、`HistoryTagUnknown`、`HistoryTagAmbiguous` 和 `Error` 的服务端语义。
 - `get_history(tag, start_time, end_time) -> list[HistorySample]`：读取一个 TAG 的完整 History 范围。
-- `get_histories(tags, start_time, end_time) -> dict[str, list[HistorySample]]`：逐 TAG 读取，受 `/info` 的 `historyMaxConcurrent` 限制。
+- `get_histories(tags, start_time, end_time) -> dict[str, list[HistorySample]]`：逐 TAG 读取，受客户端实例共享的 `/info` `historyMaxConcurrent` 限制。
 - `get_events(start_time, end_time) -> list[DcsEvent]`：读取固定的半开区间 `[start_time, end_time)`。
 
-Base URL 和 timeout 都由构造参数提供，不写死在规则中。项目没有引入第三方
-HTTP 依赖，底层使用 Python 标准库 `urllib`。
+Base URL、单次请求 timeout 和一次客户端操作的总 timeout 都由构造参数提供，
+不写死在规则中。项目没有引入第三方 HTTP 依赖，底层使用 Python 标准库
+`urllib`。
 
 ## 时间语义
 
@@ -60,6 +65,8 @@ HTTP 依赖，底层使用 Python 标准库 `urllib`。
 Python 无法保存的第 7 位小数会在解析时明确截断到 microsecond。Event cursor
 请求不会从截断后的 `datetime` 重建，而是使用服务返回的原始
 `X-DCS-Next-DateTime`，并同时保留 `FracSec` 和 `Ord`。
+Event 模型还保留 CSV 中的原始 `DateTime` 文本，用于校验 next cursor，
+不把第 7 位精度丢失造成的相等误判带入分页。
 
 ## History
 
@@ -90,15 +97,20 @@ Python 无法保存的第 7 位小数会在解析时明确截断到 microsecond�
 5. 遇到 `timestamp >= end_time` 的事件时停止读取，并丢弃范围外事件。
 
 每个 Event page 都要求完整的 17 列 Schema 和必要 Header。所有 cursor 页必须
-保持同一个 `sourceGeneration`；变化时抛出 `DcsDataIntegrityError`，不会返回已
-读取的部分结果。`get_events()` 不持久化 cursor、checkpoint，也不启动后台同步。
+保持同一个 `sourceGeneration`，页内 cursor 严格递增，next cursor 必须等于本页
+最后一条事件的 `(DateTime, FracSec, Ord)`；Cursor 页首条事件还必须严格晚于提交
+的 cursor。初始 Range 页若出现 `[from, to)` 外事件会抛协议异常；变化或其他完整性
+错误时不会返回已读取的部分结果。协议允许空 Cursor page 重复输入 cursor 并以
+`HasMore=false` 结束；客户端会校验该例外。`get_events()` 不持久化 cursor、
+checkpoint，也不启动后台同步。
 
 ## 错误和重试
 
 异常统一继承 `DcsServiceError`，并保留 `status_code`、`code`、`message` 和有
 界的诊断上下文。程序分支只使用 HTTP 状态码和 `error.code`，不解析错误文本。
 
-有限重试最多由 `max_retries` 控制，退避为 1、2、4、8 秒并带 jitter。会重试：
+有限重试最多由 `max_retries` 控制，退避为 1、2、4、8 秒并带 jitter，并受
+`total_timeout_seconds` 总截止时间限制。会重试：
 
 - `429 service_busy`；
 - `503 service_busy`；
@@ -128,4 +140,3 @@ python experiments/dcs_service/probe.py \
 
 probe 只打印服务信息、TAG 状态以及 History/Event 的行数和首尾时间，不打印
 完整数据。
-

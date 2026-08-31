@@ -41,9 +41,11 @@ class DcsHttpTransport:
         base_url: str,
         *,
         timeout_seconds: float = 70,
+        total_timeout_seconds: float | None = 120,
         max_retries: int = 4,
         sleep_fn: Callable[[float], None] = time.sleep,
         random_fn: Callable[[], float] = random.random,
+        monotonic_fn: Callable[[], float] = time.monotonic,
         opener: Callable[..., Any] | None = None,
     ) -> None:
         if not isinstance(base_url, str):
@@ -59,6 +61,11 @@ class DcsHttpTransport:
                 "timeout_seconds must be greater than zero",
                 code="invalid_request",
             )
+        if total_timeout_seconds is not None and total_timeout_seconds <= 0:
+            raise DcsArgumentError(
+                "total_timeout_seconds must be greater than zero or None",
+                code="invalid_request",
+            )
         if max_retries < 0:
             raise DcsArgumentError(
                 "max_retries cannot be negative",
@@ -67,9 +74,11 @@ class DcsHttpTransport:
 
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.total_timeout_seconds = total_timeout_seconds
         self.max_retries = max_retries
         self.sleep_fn = sleep_fn
         self.random_fn = random_fn
+        self.monotonic_fn = monotonic_fn
         self.opener = opener or urllib.request.urlopen
 
     def get(
@@ -80,10 +89,20 @@ class DcsHttpTransport:
         """Execute one GET request and return only a successful HTTP 200."""
 
         url = self._build_url(path, params)
+        deadline = (
+            None
+            if self.total_timeout_seconds is None
+            else self.monotonic_fn() + self.total_timeout_seconds
+        )
         retry_count = 0
         while True:
             try:
-                response = self._request(url)
+                response = self._request(url, deadline=deadline)
+                if self._deadline_expired(deadline):
+                    raise DcsRequestTimeoutError(
+                        "HTTP request exceeded total timeout",
+                        code="request_timeout",
+                    )
                 if response.status != 200:
                     raise _error_from_http_response(response)
                 return response
@@ -107,14 +126,31 @@ class DcsHttpTransport:
             except DcsServiceError as exc:
                 error = exc
 
-            if not self._should_retry(error, retry_count):
+            if (
+                not self._should_retry(error, retry_count)
+                or self._deadline_expired(deadline)
+            ):
                 raise error
-            self._sleep_before_retry(retry_count)
+            self._sleep_before_retry(retry_count, deadline=deadline)
             retry_count += 1
 
-    def _request(self, url: str) -> HttpResponse:
+    def _request(
+        self,
+        url: str,
+        *,
+        deadline: float | None = None,
+    ) -> HttpResponse:
         request = Request(url, method="GET")
-        response = self.opener(request, timeout=self.timeout_seconds)
+        timeout = self.timeout_seconds
+        if deadline is not None:
+            remaining = deadline - self.monotonic_fn()
+            if remaining <= 0:
+                raise DcsRequestTimeoutError(
+                    "HTTP request exceeded total timeout",
+                    code="request_timeout",
+                )
+            timeout = min(timeout, remaining)
+        response = self.opener(request, timeout=timeout)
         if isinstance(response, HttpResponse):
             return response
 
@@ -168,10 +204,24 @@ class DcsHttpTransport:
             and error.status_code in {429, 503}
         )
 
-    def _sleep_before_retry(self, retry_count: int) -> None:
+    def _deadline_expired(self, deadline: float | None) -> bool:
+        return deadline is not None and self.monotonic_fn() >= deadline
+
+    def _sleep_before_retry(
+        self,
+        retry_count: int,
+        *,
+        deadline: float | None = None,
+    ) -> None:
         delay = min(2**retry_count, 8)
         jitter = max(0.0, self.random_fn()) * 0.25
-        self.sleep_fn(delay + jitter)
+        total_delay = delay + jitter
+        if deadline is not None and deadline - self.monotonic_fn() <= total_delay:
+            raise DcsRequestTimeoutError(
+                "HTTP retry backoff exceeded total timeout",
+                code="request_timeout",
+            )
+        self.sleep_fn(total_delay)
 
 
 def _headers_to_dict(headers: Any) -> dict[str, str]:
@@ -244,4 +294,3 @@ def _body_summary(body: bytes, *, max_length: int = 512) -> str:
     if len(text) <= max_length:
         return text
     return text[:max_length] + "..."
-

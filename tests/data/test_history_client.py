@@ -16,7 +16,7 @@ SERVICE_INFO = {
     "service": "DcsDataService",
     "version": "1.1.0",
     "historianServer": "APP",
-    "sourceTimezone": "China Standard Time",
+    "sourceTimeZone": "China Standard Time",
     "historyMaxConcurrent": 2,
     "eventMaxConcurrent": 4,
     "readOnly": True,
@@ -48,6 +48,15 @@ def test_health_parses_json_without_claiming_data_source_availability():
     )
 
     assert client.health() is True
+
+
+def test_get_info_uses_case_sensitive_source_time_zone_protocol_field():
+    client = DcsServiceClient(
+        "http://service",
+        transport=FakeTransport([json_response(SERVICE_INFO)]),
+    )
+
+    assert client.get_info().source_timezone == "China Standard Time"
 
 
 def test_get_history_calls_info_first_and_validates_request_headers():

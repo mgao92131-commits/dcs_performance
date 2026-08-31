@@ -1,0 +1,10 @@
+{
+  "reference_start": "2026-08-31T08:00:00",
+  "shift_hours": 12,
+  "rotation": ["B", "C", "A"],
+  "team_names": {
+    "A": "甲班",
+    "B": "乙班",
+    "C": "丙班"
+  }
+}

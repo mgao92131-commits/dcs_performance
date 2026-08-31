@@ -1,6 +1,6 @@
-"""Models for the later assigned/scored result stage."""
+"""Models for the assigned and scored result stage."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -17,3 +17,6 @@ class AssignedAssessmentEvent:
     event_end: datetime
     score: float
     message: str = ""
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    data: dict[str, object] = field(default_factory=dict)

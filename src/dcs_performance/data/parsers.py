@@ -152,10 +152,11 @@ def parse_event_csv(body: bytes | str) -> list[DcsEvent]:
     rows = _read_csv(body, EVENT_COLUMNS, "Event")
     events: list[DcsEvent] = []
     for row_number, row in rows:
+        timestamp_raw = row["DateTime"]
         archived = row["IsArchived"]
         events.append(
             DcsEvent(
-                timestamp=parse_timestamp(row["DateTime"]),
+                timestamp=parse_timestamp(timestamp_raw),
                 frac_sec=_parse_int(row["FracSec"], "FracSec", row_number),
                 ord=_parse_int(row["Ord"], "Ord", row_number),
                 event_type=row["EventType"],
@@ -176,6 +177,7 @@ def parse_event_csv(body: bytes | str) -> list[DcsEvent]:
                     if archived == ""
                     else _parse_bool(archived, "IsArchived", row_number)
                 ),
+                timestamp_raw=timestamp_raw,
             )
         )
     return events

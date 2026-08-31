@@ -42,6 +42,10 @@ class DcsEvent:
     desc2: str
     is_archived: bool | None
 
+    # Keep the protocol text so exact seven-digit timestamps can be compared
+    # with the next-cursor header without reconstructing them from datetime.
+    timestamp_raw: str | None = None
+
 
 @dataclass(frozen=True)
 class ServiceInfo:

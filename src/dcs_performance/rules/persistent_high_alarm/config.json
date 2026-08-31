@@ -1,0 +1,50 @@
+{
+  "id": "persistent_high_alarm",
+  "name": "持续高报考核",
+  "enabled": true,
+  "assessment_window": {
+    "start_offset_minutes": -10,
+    "end_offset_minutes": 10
+  },
+  "parameters": {
+    "active_value": "1",
+    "threshold_seconds": 300,
+    "points": [
+      {
+        "id": "LA-115077",
+        "history_tag": "LA-115077/DI1/PV_D.CV"
+      },
+      {
+        "id": "LA-115177",
+        "history_tag": "LA-115177/DI1/PV_D.CV"
+      },
+      {
+        "id": "LA-117075",
+        "history_tag": "LA-117075/DI1/PV_D.CV"
+      },
+      {
+        "id": "LA-215077",
+        "history_tag": "LA-215077/DI1/PV_D.CV"
+      },
+      {
+        "id": "LA-215177",
+        "history_tag": "LA-215177/DI1/PV_D.CV"
+      },
+      {
+        "id": "LA-217075",
+        "history_tag": "LA-217075/DI1/PV_D.CV"
+      }
+    ]
+  },
+  "scoring": {
+    "default_score_per_event": 1,
+    "by_point": {
+      "LA-115077": 1,
+      "LA-115177": 1,
+      "LA-117075": 1,
+      "LA-215077": 1,
+      "LA-215177": 1,
+      "LA-217075": 1
+    }
+  }
+}
