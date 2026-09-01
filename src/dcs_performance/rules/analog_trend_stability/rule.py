@@ -20,10 +20,10 @@ from dcs_performance.rules.analog_trend_stability.config import (
 )
 from dcs_performance.rules.analog_trend_stability.detector import (
     AnalogTrendStabilityDetector,
-    DriftOccurrence,
-    StabilityOccurrence,
 )
 from dcs_performance.rules.analog_trend_stability.trend import (
+    DriftPoint,
+    TrendPoint,
     calculate_drift,
     calculate_trend,
     split_numeric_segments,
@@ -179,17 +179,11 @@ class Rule:
                     if not trend_points:
                         continue
 
-                    observation_end = segment[-1].timestamp
                     if point.stability.enabled:
-                        stability_occurrences = self.detector.detect_stability(
-                            trend_points,
-                            point.stability,
-                            observation_end=observation_end,
-                        )
                         events.extend(
                             self._stability_events(
                                 point,
-                                stability_occurrences,
+                                trend_points,
                                 start_time,
                                 end_time,
                             )
@@ -200,15 +194,10 @@ class Rule:
                             trend_points,
                             point.drift.windows,
                         )
-                        drift_occurrences = self.detector.detect_drift(
-                            drift_points,
-                            point.drift,
-                            observation_end=observation_end,
-                        )
                         events.extend(
                             self._drift_events(
                                 point,
-                                drift_occurrences,
+                                drift_points,
                                 start_time,
                                 end_time,
                             )
@@ -255,10 +244,22 @@ class Rule:
     def _stability_events(
         self,
         point: PointConfig,
-        occurrences: Iterable[StabilityOccurrence],
+        trend_points: Iterable[TrendPoint],
         start_time: datetime,
         end_time: datetime,
     ) -> list[AssessmentEvent]:
+        # Re-detect after slicing the metric timeline.  A later shift may
+        # upgrade the full occurrence, but it must not upgrade this shift's
+        # responsibility slice.
+        all_points = tuple(trend_points)
+        sliced_points = _slice_metric_points(all_points, start_time, end_time)
+        if not sliced_points:
+            return []
+        occurrences = self.detector.detect_stability(
+            sliced_points,
+            point.stability,
+            observation_end=_metric_observation_end(all_points, end_time),
+        )
         events: list[AssessmentEvent] = []
         for occurrence in occurrences:
             clipped = _clip_interval(
@@ -302,10 +303,22 @@ class Rule:
     def _drift_events(
         self,
         point: PointConfig,
-        occurrences: Iterable[DriftOccurrence],
+        drift_points: Iterable[DriftPoint],
         start_time: datetime,
         end_time: datetime,
     ) -> list[AssessmentEvent]:
+        # Drift evidence and severity are also responsibility-local.  The
+        # drift values themselves were calculated with the full padded
+        # history, but only metric points in this window may support scoring.
+        all_points = tuple(drift_points)
+        sliced_points = _slice_metric_points(all_points, start_time, end_time)
+        if not sliced_points:
+            return []
+        occurrences = self.detector.detect_drift(
+            sliced_points,
+            point.drift,
+            observation_end=_metric_observation_end(all_points, end_time),
+        )
         events: list[AssessmentEvent] = []
         for occurrence in occurrences:
             clipped = _clip_interval(
@@ -364,6 +377,34 @@ def _point_padding(point: PointConfig) -> tuple[timedelta, timedelta]:
 
     left_padding = trend_left + point.max_drift_window_seconds
     return timedelta(seconds=left_padding), timedelta(seconds=trend_right)
+
+
+def _slice_metric_points(
+    points: Iterable[TrendPoint] | Iterable[DriftPoint],
+    start_time: datetime,
+    end_time: datetime,
+) -> list[TrendPoint] | list[DriftPoint]:
+    """Return metric points belonging to one responsibility interval.
+
+    Responsibility windows are half-open at the end boundary so a point at
+    exactly 16:00 belongs to the following shift, not the preceding one.
+    """
+
+    return [
+        point
+        for point in points
+        if start_time <= point.timestamp < end_time
+    ]
+
+
+def _metric_observation_end(
+    points: Iterable[TrendPoint] | Iterable[DriftPoint],
+    end_time: datetime,
+) -> datetime:
+    """Use the responsibility end when padded observations reach it."""
+
+    latest = max((point.timestamp for point in points), default=end_time)
+    return min(latest, end_time)
 
 
 _HISTORY_FALLBACK_CHUNK = timedelta(hours=12)

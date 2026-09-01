@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import datetime, timedelta
 
 from .client import DcsDataClient
@@ -67,9 +67,11 @@ def get_history_with_previous_sample(
 
     add_samples(client.get_history(tag, start_time, end_time))
     if not _has_previous_sample(collected.values(), start_time):
-        for step in lookback_steps:
-            lookback_start = start_time - step
-            add_samples(client.get_history(tag, lookback_start, start_time))
+        for lookback_start, lookback_end in _iter_reverse_lookback_ranges(
+            start_time,
+            lookback_steps,
+        ):
+            add_samples(client.get_history(tag, lookback_start, lookback_end))
             if _has_previous_sample(collected.values(), start_time):
                 break
 
@@ -150,12 +152,14 @@ def get_histories_with_previous_samples(
         if not _has_previous_sample(collected[tag].values(), start_time)
     ]
 
-    for step in lookback_steps:
+    for lookback_start, lookback_end in _iter_reverse_lookback_ranges(
+        start_time,
+        lookback_steps,
+    ):
         if not missing:
             break
-        lookback_start = start_time - step
         add_response(
-            client.get_histories(missing, lookback_start, start_time),
+            client.get_histories(missing, lookback_start, lookback_end),
             missing,
         )
         missing = [
@@ -320,6 +324,32 @@ def _validate_arguments(
     _validate_lookback_steps(lookback_steps)
 
 
+def _iter_reverse_lookback_ranges(
+    start_time: datetime,
+    lookback_steps: tuple[timedelta, ...],
+) -> Iterator[tuple[datetime, datetime]]:
+    """Yield nearest-first, non-overlapping lookback ranges.
+
+    Lookback steps are cumulative horizons. Each gap is queried from the
+    nearest boundary backwards, and every request is capped at the documented
+    maximum History span.
+    """
+
+    max_horizon = lookback_steps[-1] if lookback_steps else timedelta(0)
+    boundaries = {timedelta(0), *lookback_steps}
+    boundary = MAX_FORWARD_QUERY_SPAN
+    while boundary < max_horizon:
+        boundaries.add(boundary)
+        boundary += MAX_FORWARD_QUERY_SPAN
+
+    ordered_boundaries = sorted(boundaries)
+    for previous_horizon, horizon in zip(
+        ordered_boundaries,
+        ordered_boundaries[1:],
+    ):
+        yield start_time - horizon, start_time - previous_horizon
+
+
 def _validate_multi_history_arguments(
     client: DcsDataClient,
     tags: list[str],
@@ -361,9 +391,13 @@ def _validate_histories_client(client: DcsDataClient) -> None:
 def _validate_lookback_steps(lookback_steps: tuple[timedelta, ...]) -> None:
     if not isinstance(lookback_steps, tuple):
         raise TypeError("lookback_steps must be a tuple of timedeltas")
+    previous = timedelta(0)
     for step in lookback_steps:
-        if not isinstance(step, timedelta) or step <= timedelta(0):
-            raise ValueError("lookback steps must be positive timedeltas")
+        if not isinstance(step, timedelta) or step <= previous:
+            raise ValueError(
+                "lookback steps must contain strictly increasing positive timedeltas"
+            )
+        previous = step
 
 
 def _validate_forward_search_arguments(

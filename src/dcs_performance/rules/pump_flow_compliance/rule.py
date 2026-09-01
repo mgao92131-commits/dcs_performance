@@ -175,9 +175,10 @@ def _validate_points(raw_points: object) -> tuple[dict[str, Any], ...]:
         pump_a_tag = _required_text(raw_point, "pump_a_tag")
         pump_b_tag = _required_text(raw_point, "pump_b_tag")
         flow_tag = _required_text(raw_point, "flow_tag")
-        if pump_a_tag == pump_b_tag:
+        if len({pump_a_tag, pump_b_tag, flow_tag}) != 3:
             raise ValueError(
-                f"parameters.points[{index}] pump_a_tag and pump_b_tag must differ"
+                f"parameters.points[{index}] pump_a_tag, pump_b_tag, and flow_tag "
+                "must all differ"
             )
 
         try:

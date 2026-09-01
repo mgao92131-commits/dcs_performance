@@ -5,6 +5,7 @@ import pytest
 from dcs_performance.data.errors import DcsHistoryQueryTooLargeError
 from dcs_performance.engine.loader import RuleLoader, RuleLoadError
 from dcs_performance.rules.analog_trend_stability.rule import QueryPlanner, Rule
+from dcs_performance.rules.analog_trend_stability.trend import DriftPoint, TrendPoint
 
 from tests.fakes import FakeDataClient, make_history_sample
 
@@ -170,6 +171,152 @@ def test_rule_splits_events_at_assessment_boundaries_and_keeps_stable_keys():
     assert current[0].data["event_key"].startswith(
         "analog_trend_stability:A:stability_deviation:none:"
     )
+
+
+def test_rule_recomputes_stability_metrics_inside_each_shift_slice():
+    shift_boundary = datetime(2026, 8, 31, 16, 0)
+    metric_start = shift_boundary - timedelta(minutes=2)
+    rule = Rule(
+        FakeDataClient(),
+        config(
+            [
+                point(
+                    "A",
+                    "TAG-A",
+                    window_seconds=60,
+                    warning=0.08,
+                    high=0.10,
+                    min_duration=60,
+                    drift={"enabled": False, "windows": []},
+                )
+            ]
+        ),
+    )
+    metric_points = [
+        TrendPoint(
+            timestamp=metric_start + timedelta(minutes=index),
+            pv=0.09 if index < 2 else 0.20,
+            trend=0.0,
+            deviation=0.09 if index < 2 else 0.20,
+            segment_id=0,
+        )
+        for index in range(5)
+    ]
+
+    current_events = rule._stability_events(
+        rule.points[0],
+        metric_points,
+        metric_start,
+        shift_boundary,
+    )
+    next_events = rule._stability_events(
+        rule.points[0],
+        metric_points,
+        shift_boundary,
+        shift_boundary + timedelta(minutes=2),
+    )
+
+    assert len(current_events) == 1
+    assert current_events[0].data["severity"] == "warning"
+    assert current_events[0].data["score_key"] == "stability_deviation.warning"
+    assert current_events[0].data["max_abs_deviation"] == 0.09
+    assert current_events[0].data["mean_abs_deviation"] == 0.09
+    assert current_events[0].data["duration_seconds"] == 120.0
+
+    assert len(next_events) == 1
+    assert next_events[0].data["severity"] == "high"
+    assert next_events[0].data["score_key"] == "stability_deviation.high"
+    assert next_events[0].data["max_abs_deviation"] == 0.20
+    assert next_events[0].data["mean_abs_deviation"] == 0.20
+    assert next_events[0].data["duration_seconds"] == 120.0
+
+
+def test_rule_recomputes_drift_evidence_inside_each_shift_slice():
+    shift_boundary = datetime(2026, 8, 31, 16, 0)
+    metric_start = shift_boundary - timedelta(minutes=2)
+    rule = Rule(
+        FakeDataClient(),
+        config(
+            [
+                point(
+                    "A",
+                    "TAG-A",
+                    stability=False,
+                    drift={
+                        "enabled": True,
+                        "merge_gap_seconds": 0,
+                        "windows": [
+                            {
+                                "id": "short",
+                                "window_seconds": 30,
+                                "warning_change": 0.15,
+                                "high_change": 0.20,
+                                "min_duration_seconds": 60,
+                            },
+                            {
+                                "id": "long",
+                                "window_seconds": 60,
+                                "warning_change": 0.23,
+                                "high_change": 0.30,
+                                "min_duration_seconds": 60,
+                            },
+                        ],
+                    },
+                )
+            ]
+        ),
+    )
+    drift_points = [
+        drift_point
+        for index in range(5)
+        for drift_point in (
+            DriftPoint(
+                timestamp=metric_start + timedelta(minutes=index),
+                window_id="short",
+                window_seconds=30,
+                change=0.16 if index < 2 else 0.25,
+                segment_id=0,
+            ),
+            DriftPoint(
+                timestamp=metric_start + timedelta(minutes=index),
+                window_id="long",
+                window_seconds=60,
+                change=0.24 if index < 2 else 0.35,
+                segment_id=0,
+            ),
+        )
+    ]
+
+    current_events = rule._drift_events(
+        rule.points[0],
+        drift_points,
+        metric_start,
+        shift_boundary,
+    )
+    next_events = rule._drift_events(
+        rule.points[0],
+        drift_points,
+        shift_boundary,
+        shift_boundary + timedelta(minutes=2),
+    )
+
+    assert len(current_events) == 1
+    assert current_events[0].data["severity"] == "warning"
+    assert current_events[0].data["score_key"] == "trend_drift.warning"
+    assert current_events[0].data["duration_seconds"] == 120.0
+    assert current_events[0].data["evidence"] == [
+        {"window_id": "short", "window_seconds": 30.0, "peak_change": 0.16},
+        {"window_id": "long", "window_seconds": 60.0, "peak_change": 0.24},
+    ]
+
+    assert len(next_events) == 1
+    assert next_events[0].data["severity"] == "high"
+    assert next_events[0].data["score_key"] == "trend_drift.high"
+    assert next_events[0].data["duration_seconds"] == 120.0
+    assert next_events[0].data["evidence"] == [
+        {"window_id": "short", "window_seconds": 30.0, "peak_change": 0.25},
+        {"window_id": "long", "window_seconds": 60.0, "peak_change": 0.35},
+    ]
 
 
 def test_rule_retries_long_history_as_batched_time_slices():

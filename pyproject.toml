@@ -23,6 +23,7 @@ where = ["src"]
 "dcs_performance.rules.example_rule" = ["config.json", "README.md"]
 "dcs_performance.rules.persistent_high_alarm" = ["config.json", "README.md"]
 "dcs_performance.rules.analog_trend_stability" = ["config.json", "README.md"]
+"dcs_performance.rules.analog_limit_exceedance" = ["config.json", "README.md"]
 "dcs_performance.rules.pump_flow_compliance" = ["config.json", "README.md"]
 "dcs_performance.shifts" = ["*.json"]
 

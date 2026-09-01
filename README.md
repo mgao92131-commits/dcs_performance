@@ -99,7 +99,15 @@ print(shift.team_id, shift.shift_type, shift.start_time, shift.end_time)
 
 规则目录见
 [`persistent_high_alarm`](src/dcs_performance/rules/persistent_high_alarm/README.md)。
-它从配置中的三个 Historian TAG 读取数字状态：`0` 为正常，`1` 为高报。
+它从正式配置中的六个 Historian TAG 读取数字状态：`0` 为正常，`1` 为高报。
+正式点位为：
+
+```text
+LA-115077  LA-115177  LA-117075
+LA-215077  LA-215177  LA-217075
+```
+
+对应 Historian 参数均为 `DI1/PV_D.CV`。
 一次 `0 -> 1` 连续保持超过 5 分钟才计 1 次；严格 300 秒不计，连续的
 多个 `1` 不重复计数，恢复为 `0` 后再次高报才是新事件。
 
@@ -108,9 +116,9 @@ print(shift.team_id, shift.shift_type, shift.start_time, shift.end_time)
 窗口外读取的数据只用于状态上下文。评分来自 `scoring.default_score_per_event`
 和 `scoring.by_point`，不写死在规则代码中。
 
-配置中的 `REPLACE_WITH_VERIFIED_TAG` 是占位符。部署前必须对三个完整 TAG
-分别调用 `DcsServiceClient.check_tag()` 确认；在没有现场确认前，不声称已完成
-真实 DCS 数据联调。
+当前正式配置已填写上述六个完整 Historian TAG，并已通过
+`DcsServiceClient.check_tag()` 确认。若切换到其他现场环境，应重新执行 TAG
+检查，不要在规则代码中拼接 TAG。
 
 ## 完整执行链路
 

@@ -13,7 +13,11 @@ WINDOW_START = datetime(2026, 8, 31, 7, 50)
 WINDOW_END = datetime(2026, 8, 31, 19, 50)
 
 
-def make_config(*points: tuple[str, str], threshold_seconds: int | float = 300):
+def make_config(
+    *points: tuple[str, str],
+    threshold_seconds: int | float = 300,
+    recovery_search_hours: int | float = 48,
+):
     return {
         "id": "persistent_high_alarm",
         "name": "持续高报考核",
@@ -25,6 +29,7 @@ def make_config(*points: tuple[str, str], threshold_seconds: int | float = 300):
         "parameters": {
             "active_value": "1",
             "threshold_seconds": threshold_seconds,
+            "recovery_search_hours": recovery_search_hours,
             "points": [
                 {"id": point_id, "history_tag": history_tag}
                 for point_id, history_tag in points
@@ -112,10 +117,121 @@ def test_rule_assigns_cross_boundary_alarm_by_alarm_start_and_next_window_filter
 
     assert len(current_events) == 1
     assert current_events[0].start_time == alarm_start
-    assert current_events[0].data["alarm_end"] is None
-    assert current_events[0].data["is_open"] is True
-    assert current_events[0].end_time == datetime(2026, 8, 31, 19, 55, 1)
+    assert current_events[0].data["alarm_end"] == recovery
+    assert current_events[0].data["duration_seconds"] == 1320.0
+    assert current_events[0].data["is_open"] is False
+    assert current_events[0].end_time == recovery
     assert next_events == []
+
+
+def test_rule_finds_recovery_in_the_first_forward_chunk():
+    tag = "TAG-FIRST-RECOVERY"
+    alarm_start = datetime(2026, 8, 31, 19, 48)
+    recovery = datetime(2026, 8, 31, 20, 5)
+    client = FakeDataClient({
+        tag: [
+            make_history_sample(datetime(2026, 8, 31, 19, 40), "0"),
+            make_history_sample(alarm_start, "1"),
+            make_history_sample(recovery, "0"),
+        ]
+    })
+
+    events = Rule(
+        data_client=client,
+        config=make_config(("LA-117075", tag)),
+    ).evaluate(WINDOW_START, WINDOW_END)
+
+    assert len(events) == 1
+    assert events[0].end_time == recovery
+    assert events[0].data["alarm_end"] == recovery
+    assert events[0].data["is_open"] is False
+
+
+def test_rule_extends_recovery_lookup_to_the_second_chunk():
+    tag = "TAG-SECOND-RECOVERY"
+    alarm_start = datetime(2026, 8, 31, 19, 48)
+    recovery = datetime(2026, 8, 31, 21, 20)
+    client = FakeDataClient({
+        tag: [
+            make_history_sample(datetime(2026, 8, 31, 19, 40), "0"),
+            make_history_sample(alarm_start, "1"),
+            make_history_sample(recovery, "0"),
+        ]
+    })
+
+    events = Rule(
+        data_client=client,
+        config=make_config(("LA-117075", tag)),
+    ).evaluate(WINDOW_START, WINDOW_END)
+
+    assert len(events) == 1
+    assert events[0].data["alarm_end"] == recovery
+    assert events[0].data["duration_seconds"] == 5520.0
+    assert [call[1:] for call in client.calls[-2:]] == [
+        (
+            datetime(2026, 8, 31, 19, 55, 1),
+            datetime(2026, 8, 31, 20, 18),
+        ),
+        (
+            datetime(2026, 8, 31, 20, 18),
+            datetime(2026, 8, 31, 21, 48),
+        ),
+    ]
+
+
+def test_rule_keeps_long_unrecovered_alarm_open_to_the_search_limit():
+    tag = "TAG-LONG-OPEN"
+    alarm_start = datetime(2026, 8, 31, 19, 48)
+    client = FakeDataClient({
+        tag: [
+            make_history_sample(datetime(2026, 8, 31, 19, 40), "0"),
+            make_history_sample(alarm_start, "1"),
+        ]
+    })
+
+    events = Rule(
+        data_client=client,
+        config=make_config(("LA-117075", tag)),
+    ).evaluate(WINDOW_START, WINDOW_END)
+
+    assert len(events) == 1
+    event = events[0]
+    assert event.data["alarm_end"] is None
+    assert event.data["is_open"] is True
+    assert event.data["duration_seconds"] == 48 * 60 * 60
+    assert event.end_time == alarm_start + timedelta(hours=48)
+
+
+def test_rule_recovery_lookup_stops_at_first_recovery_before_next_alarm():
+    tag = "TAG-TWO-ALARMS"
+    first_start = datetime(2026, 8, 31, 19, 48)
+    first_end = datetime(2026, 8, 31, 20, 10)
+    second_start = datetime(2026, 8, 31, 20, 30)
+    second_end = datetime(2026, 8, 31, 20, 40)
+    client = FakeDataClient({
+        tag: [
+            make_history_sample(datetime(2026, 8, 31, 19, 40), "0"),
+            make_history_sample(first_start, "1"),
+            make_history_sample(first_end, "0"),
+            make_history_sample(second_start, "1"),
+            make_history_sample(second_end, "0"),
+        ]
+    })
+    rule = Rule(
+        data_client=client,
+        config=make_config(("LA-117075", tag)),
+    )
+
+    current_events = rule.evaluate(WINDOW_START, WINDOW_END)
+    next_events = rule.evaluate(
+        WINDOW_END,
+        datetime(2026, 9, 1, 7, 50),
+    )
+
+    assert [event.start_time for event in current_events] == [first_start]
+    assert current_events[0].data["alarm_end"] == first_end
+    assert [event.start_time for event in next_events] == [second_start]
+    assert next_events[0].data["alarm_end"] == second_end
 
 
 @pytest.mark.parametrize(
@@ -167,6 +283,7 @@ def test_rule_never_turns_data_client_error_into_empty_events():
         {"parameters": {"active_value": "1", "threshold_seconds": 300, "points": []}},
         {"parameters": {"active_value": "1", "threshold_seconds": 0, "points": [{"id": "P", "history_tag": "T"}]}},
         {"parameters": {"active_value": "ON", "threshold_seconds": 300, "points": [{"id": "P", "history_tag": "T"}]}},
+        {"parameters": {"active_value": "1", "threshold_seconds": 300, "recovery_search_hours": 0, "points": [{"id": "P", "history_tag": "T"}]}},
     ],
 )
 def test_rule_rejects_invalid_static_configuration(bad_config):

@@ -1,7 +1,7 @@
 {
   "id": "pump_flow_compliance",
   "name": "泵组流量考核",
-  "enabled": true,
+  "enabled": false,
   "assessment_window": {
     "start_offset_minutes": -10,
     "end_offset_minutes": 10

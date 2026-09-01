@@ -4,7 +4,14 @@
 
 ## 业务定义
 
-规则读取配置中的三个 Historian 点位。数字状态 `0` 表示正常，`1` 表示
+规则读取配置中的六个 Historian 点位。正式点位为：
+
+```text
+LA-115077  LA-115177  LA-117075
+LA-215077  LA-215177  LA-217075
+```
+
+对应 Historian 参数均为 `DI1/PV_D.CV`。数字状态 `0` 表示正常，`1` 表示
 高报。一次 `0 -> 1` 后连续保持高报超过 300 秒（严格大于 5 分钟）才
 生成一次有效事件；连续的多个 `1` 不重复计数，恢复为 `0` 后再次出现
 `1` 才开始新的事件。
@@ -14,10 +21,9 @@
 
 ## 输入与配置
 
-每个点位必须提供独立的 `history_tag`。配置中的 `REPLACE_WITH_VERIFIED_TAG`
-只是占位符，部署前必须使用 `DcsServiceClient.check_tag()` 在现场确认完整
-Historian TAG。代码不会把点位 ID 与 `DI1/PV_D.CV` 拼接，也不会在规则中
-保存 DCS Base URL。
+每个点位必须提供独立的 `history_tag`。当前正式配置包含六个已确认的完整
+Historian TAG，并已使用 `DcsServiceClient.check_tag()` 验证。代码不会把点位
+ID 与 `DI1/PV_D.CV` 拼接，也不会在规则中保存 DCS Base URL。
 
 `threshold_seconds`、`active_value` 和 `scoring` 都来自 `config.json`。未知
 数字状态会明确抛出解析错误，不会静默变成正常状态。
@@ -47,6 +53,11 @@ end   = shift.end - 10 minutes
 `window.end + threshold + 1 second`。因此尚未恢复但已确认超过阈值的高报
 会生成 OPEN `AssessmentEvent`：其 `end_time` 是当前已确认的查询观察终点，
 `data["alarm_end"]` 为 `None`，`data["is_open"]` 为 `True`。
+
+对 OPEN 事件，Rule 会从首次查询已经覆盖的 cursor 继续按不重叠分段向后查找
+第一次恢复状态 `0`。默认累计搜索边界为 30 分钟、2 小时、12 小时和 48 小时；
+找到恢复时补写真实 `alarm_end` 和 `duration_seconds`，48 小时内找不到时保留
+OPEN，并将观察时长延伸到配置的搜索上限。
 
 最终事件只保留 `window.start <= alarm_start < window.end`。所以窗口外读取的
 上下文只用于判断状态，不能让上一班的事件被下一班再次返回；跨正式

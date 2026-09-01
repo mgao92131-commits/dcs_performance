@@ -36,7 +36,11 @@ def pipeline_config():
         "parameters": {
             "active_value": "1",
             "threshold_seconds": 300,
+            "recovery_search_hours": 48,
             "points": [
+                {"id": "LA-115077", "history_tag": "TAG-115077"},
+                {"id": "LA-115177", "history_tag": "TAG-115177"},
+                {"id": "LA-117075", "history_tag": "TAG-117075"},
                 {"id": "LA-215077", "history_tag": "TAG-215077"},
                 {"id": "LA-215177", "history_tag": "TAG-215177"},
                 {"id": "LA-217075", "history_tag": "TAG-217075"},
@@ -45,6 +49,9 @@ def pipeline_config():
         "scoring": {
             "default_score_per_event": 1,
             "by_point": {
+                "LA-115077": 1,
+                "LA-115177": 1,
+                "LA-117075": 1,
                 "LA-215077": 1,
                 "LA-215177": 1,
                 "LA-217075": 1,
@@ -62,20 +69,31 @@ def test_pipeline_runs_from_cyclic_shift_to_summary():
     shift = CalendarShiftResolver(calendar).resolve(datetime(2026, 8, 31, 10, 0))
     config = pipeline_config()
     client = FakeDataClient({
-        "TAG-215077": [
+        "TAG-115077": [
             make_history_sample(datetime(2026, 8, 31, 7, 40), "0"),
             make_history_sample(datetime(2026, 8, 31, 10, 12), "1"),
             make_history_sample(datetime(2026, 8, 31, 10, 20, 30), "0"),
         ],
-        "TAG-215177": [
+        "TAG-115177": [
             make_history_sample(datetime(2026, 8, 31, 7, 30), "0"),
             make_history_sample(datetime(2026, 8, 31, 11, 3), "1"),
             make_history_sample(datetime(2026, 8, 31, 11, 6), "0"),
         ],
-        "TAG-217075": [
+        "TAG-117075": [
             make_history_sample(datetime(2026, 8, 31, 7, 30), "0"),
             make_history_sample(datetime(2026, 8, 31, 19, 48), "1"),
             make_history_sample(datetime(2026, 8, 31, 20, 10), "0"),
+        ],
+        "TAG-215077": [
+            make_history_sample(datetime(2026, 8, 31, 7, 30), "0"),
+        ],
+        "TAG-215177": [
+            make_history_sample(datetime(2026, 8, 31, 7, 30), "0"),
+            make_history_sample(datetime(2026, 8, 31, 12, 0), "1"),
+            make_history_sample(datetime(2026, 8, 31, 12, 6, 1), "0"),
+        ],
+        "TAG-217075": [
+            make_history_sample(datetime(2026, 8, 31, 7, 30), "0"),
         ],
     })
     rule = Rule(data_client=client, config=config)
@@ -94,11 +112,14 @@ def test_pipeline_runs_from_cyclic_shift_to_summary():
     assert build_assessment_window(shift, config).end_time == datetime(
         2026, 8, 31, 19, 50
     )
-    assert summary.event_count == 2
-    assert summary.total_score == 2
-    assert summary.by_point["LA-215077"].event_count == 1
-    assert summary.by_point["LA-215177"].event_count == 0
-    assert summary.by_point["LA-217075"].event_count == 1
+    assert summary.event_count == 3
+    assert summary.total_score == 3
+    assert summary.by_point["LA-115077"].event_count == 1
+    assert summary.by_point["LA-115177"].event_count == 0
+    assert summary.by_point["LA-117075"].event_count == 1
+    assert summary.by_point["LA-215077"].event_count == 0
+    assert summary.by_point["LA-215177"].event_count == 1
+    assert summary.by_point["LA-217075"].event_count == 0
 
     next_shift = CalendarShiftResolver(calendar).resolve(datetime(2026, 8, 31, 21, 0))
     next_evaluated = engine.run_detailed(next_shift)

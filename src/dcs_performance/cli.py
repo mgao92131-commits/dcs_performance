@@ -23,9 +23,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.list_rules:
-        for loaded in RuleLoader(rules_dir=args.rules_dir).load_all():
-            state = "enabled" if loaded.enabled else "disabled"
-            print(f"{loaded.id}\t{loaded.name}\t{state}")
+        for metadata in RuleLoader(rules_dir=args.rules_dir).list_metadata():
+            state = "enabled" if metadata.enabled else "disabled"
+            print(f"{metadata.id}\t{metadata.name}\t{state}")
         return 0
 
     parser.print_help()

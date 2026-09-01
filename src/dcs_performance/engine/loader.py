@@ -17,6 +17,16 @@ class RuleLoadError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class RuleMetadata:
+    """Configuration metadata that can be listed without importing a rule."""
+
+    id: str
+    name: str
+    enabled: bool
+    directory: Path
+
+
+@dataclass(frozen=True)
 class LoadedRule:
     """A constructed rule together with its local configuration."""
 
@@ -33,7 +43,8 @@ class LoadedRule:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.config.get("enabled", True))
+        value = self.config.get("enabled", True)
+        return value if isinstance(value, bool) else bool(value)
 
 
 class RuleLoader:
@@ -71,6 +82,11 @@ class RuleLoader:
             raise RuleLoadError(f"rule directory does not exist: {rule_dir}")
         return self._load_directory(rule_dir)
 
+    def list_metadata(self) -> list[RuleMetadata]:
+        """List valid rule metadata without importing or constructing rules."""
+
+        return [self._read_metadata(rule_dir) for rule_dir in self.discover()]
+
     def load_all(self) -> list[LoadedRule]:
         """Load every valid rule directory, including disabled rules."""
 
@@ -89,14 +105,8 @@ class RuleLoader:
                 f"rule {rule_dir.name!r} must contain rule.py and config.json"
             )
 
-        try:
-            with config_path.open("r", encoding="utf-8") as handle:
-                config = json.load(handle)
-        except (OSError, json.JSONDecodeError) as exc:
-            raise RuleLoadError(f"could not read config for {rule_dir.name!r}") from exc
-
-        if not isinstance(config, dict):
-            raise RuleLoadError(f"config for {rule_dir.name!r} must be a JSON object")
+        config = self._read_config(rule_dir)
+        self._metadata_from_config(rule_dir, config)
 
         module = self._load_module(rule_dir)
         rule_class = getattr(module, "Rule", None)
@@ -112,6 +122,54 @@ class RuleLoader:
             raise RuleLoadError(f"rule {rule_dir.name!r} must expose string id and name")
 
         return LoadedRule(rule=rule, config=config)
+
+    @staticmethod
+    def _read_config(rule_dir: Path) -> dict[str, Any]:
+        config_path = rule_dir / "config.json"
+        try:
+            with config_path.open("r", encoding="utf-8") as handle:
+                config = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuleLoadError(f"could not read config for {rule_dir.name!r}") from exc
+
+        if not isinstance(config, dict):
+            raise RuleLoadError(f"config for {rule_dir.name!r} must be a JSON object")
+        return config
+
+    @classmethod
+    def _read_metadata(cls, rule_dir: Path) -> RuleMetadata:
+        config = cls._read_config(rule_dir)
+        return cls._metadata_from_config(rule_dir, config)
+
+    @staticmethod
+    def _metadata_from_config(
+        rule_dir: Path,
+        config: dict[str, Any],
+    ) -> RuleMetadata:
+        rule_id = config.get("id")
+        if not isinstance(rule_id, str) or not rule_id:
+            raise RuleLoadError(
+                f"config for {rule_dir.name!r} must define a non-empty string id"
+            )
+
+        name = config.get("name")
+        if not isinstance(name, str) or not name:
+            raise RuleLoadError(
+                f"config for {rule_dir.name!r} must define a non-empty string name"
+            )
+
+        enabled = config.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise RuleLoadError(
+                f"config for {rule_dir.name!r} enabled must be a boolean"
+            )
+
+        return RuleMetadata(
+            id=rule_id,
+            name=name,
+            enabled=enabled,
+            directory=rule_dir,
+        )
 
     @staticmethod
     def _load_module(rule_dir: Path):

@@ -30,6 +30,11 @@ class Rule:
 正常范围，再按 30 分钟、2 小时、12 小时、48 小时回溯，最终只保留最近一条
 前置样本和 `[start_time, end_time)` 内样本；不会假造默认 `0`。
 
+需要向后寻找状态变化时使用同文件的 `find_next_sample()`。`search_steps` 是从
+逻辑起点开始的累计边界，查询从 `cursor_time` 继续且区间不重叠；超过 24 小时
+的单段会在数据访问层切开，以符合 dcs-service 的 History 查询上限。数据服务
+异常和 predicate 异常不会被转换成“未找到”。
+
 ## `DcsServiceClient`
 
 ```python

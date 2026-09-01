@@ -1,0 +1,60 @@
+{
+  "id": "analog_limit_exceedance",
+  "name": "连续量上下限超限考核",
+  "enabled": true,
+  "assessment_window": {
+    "start_offset_minutes": 0,
+    "end_offset_minutes": 0
+  },
+  "parameters": {
+    "points": [
+      {
+        "id": "TI-013008",
+        "history_tag": "TI-013008/AI1/PV.CV",
+        "enabled": true,
+        "low": {
+          "enabled": true,
+          "limit": 80.0,
+          "min_duration_seconds": 300,
+          "merge_gap_seconds": 20
+        },
+        "high": {
+          "enabled": true,
+          "limit": 120.0,
+          "min_duration_seconds": 300,
+          "merge_gap_seconds": 20
+        }
+      },
+      {
+        "id": "LICA-012019",
+        "history_tag": "LICA-012019/PID1/PV.CV",
+        "enabled": true,
+        "low": {
+          "enabled": true,
+          "limit": 45.0,
+          "min_duration_seconds": 600,
+          "merge_gap_seconds": 30
+        },
+        "high": {
+          "enabled": true,
+          "limit": 55.0,
+          "min_duration_seconds": 600,
+          "merge_gap_seconds": 30
+        }
+      }
+    ]
+  },
+  "scoring": {
+    "default_score_per_event": 1,
+    "by_point_event_type": {
+      "TI-013008": {
+        "low_limit": 1,
+        "high_limit": 1
+      },
+      "LICA-012019": {
+        "low_limit": 2,
+        "high_limit": 2
+      }
+    }
+  }
+}

@@ -78,16 +78,38 @@ def test_context_uses_two_hour_lookback_when_30_minutes_has_no_state():
     result = get_history_with_previous_sample(client, "TAG1", START, END)
 
     assert result == [previous]
-    assert client.calls[-1][1:] == (START - timedelta(hours=2), START)
+    assert client.calls[-1][1:] == (
+        START - timedelta(hours=2),
+        START - timedelta(minutes=30),
+    )
 
 
 def test_context_checks_all_default_lookbacks_and_returns_no_fake_zero():
-    client = FakeDataClient([[], [], [], [], []])
+    client = FakeDataClient([[], [], [], [], [], []])
 
     result = get_history_with_previous_sample(client, "TAG1", START, END)
 
     assert result == []
-    assert len(client.calls) == 1 + len(DEFAULT_LOOKBACK_STEPS)
+    assert len(client.calls) == 1 + len(DEFAULT_LOOKBACK_STEPS) + 1
+
+
+def test_context_splits_reverse_lookback_ranges_at_history_limit():
+    client = FakeDataClient([[] for _ in range(6)])
+
+    assert get_history_with_previous_sample(client, "TAG1", START, END) == []
+    expected_ranges = [
+        (START, END),
+        (START - timedelta(minutes=30), START),
+        (START - timedelta(hours=2), START - timedelta(minutes=30)),
+        (START - timedelta(hours=12), START - timedelta(hours=2)),
+        (START - timedelta(hours=24), START - timedelta(hours=12)),
+        (START - timedelta(hours=48), START - timedelta(hours=24)),
+    ]
+    assert [call[1:] for call in client.calls] == expected_ranges
+    assert all(
+        end - start <= MAX_FORWARD_QUERY_SPAN
+        for start, end in expected_ranges[1:]
+    )
 
 
 def test_context_deduplicates_overlapping_samples_by_timestamp_and_sequence():
@@ -273,7 +295,11 @@ def test_multi_context_batches_initial_and_only_missing_lookback_tags():
     assert client.calls == [
         (["TAG1", "TAG2", "TAG3"], START, END),
         (["TAG1", "TAG2", "TAG3"], START - timedelta(minutes=30), START),
-        (["TAG2"], START - timedelta(hours=2), START),
+        (
+            ["TAG2"],
+            START - timedelta(hours=2),
+            START - timedelta(minutes=30),
+        ),
     ]
 
 

@@ -190,6 +190,7 @@ def test_timeout_that_started_before_window_is_not_repeated():
     [
         {"id": "117P01"},
         {**point(), "pump_a_tag": "B"},
+        {**point(), "flow_tag": "A"},
         {**point(), "running_value": "2"},
         {**point(), "normal_min_flow": 0},
         {**point(), "switching_min_flow": 0},

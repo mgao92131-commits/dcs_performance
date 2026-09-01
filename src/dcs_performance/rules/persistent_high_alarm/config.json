@@ -9,6 +9,7 @@
   "parameters": {
     "active_value": "1",
     "threshold_seconds": 300,
+    "recovery_search_hours": 48,
     "points": [
       {
         "id": "LA-115077",

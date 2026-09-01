@@ -111,10 +111,5 @@ def test_pipeline_uses_common_engine_runner_scorer_and_summary():
 
 
 def test_loader_discovers_pump_rule_without_engine_specific_branch():
-    metadata = RuleLoader(data_client=None).list_metadata()
-    assert [item.id for item in metadata] == [
-        "analog_trend_stability",
-        "example_rule",
-        "persistent_high_alarm",
-        "pump_flow_compliance",
-    ]
+    rule_ids = [path.name for path in RuleLoader(data_client=None).discover()]
+    assert "pump_flow_compliance" in rule_ids

@@ -36,8 +36,8 @@ Shift
 
 `DcsDataClient` 是 DCS 适配器协议。规则可以在构造时持有 `data_client`，但 DCS
 客户端不作为 `evaluate()` 参数传入。历史点和原始事件的边界模型位于
-`data/models.py`。`history_context.py` 只通过既有 `get_history()` 请求补充窗口前
-最近状态，不增加 dcs-service API；DCS 异常向上传递，不被转为空事件。
+`data/models.py`。`history_context.py` 只通过既有 `get_history()` 请求补充窗口前最近
+状态和分段向后查找状态，不增加 dcs-service API；DCS 异常向上传递，不被转为空事件。
 
 ### `core/`
 
@@ -62,13 +62,16 @@ Shift
 ### `rules/`
 
 每个规则目录自带 `rule.py`、`config.json` 和业务说明 `README.md`。规则配置不
-集中到项目级的大型 JSON 文件。`persistent_high_alarm` 的 detector 只处理
+集中到项目级的大型 JSON 文件。`persistent_high_alarm` 正式配置包含六个点位：
+`LA-115077`、`LA-115177`、`LA-117075`、`LA-215077`、`LA-215177`、`LA-217075`；
+对应参数为 `DI1/PV_D.CV`。其 detector 只处理
 `HistorySample -> AlarmOccurrence` 状态机，Rule 负责数据读取和责任窗口过滤，
-不负责排班、HTTP、CSV 或评分。
+以及 OPEN 事件的恢复查询，不负责排班、HTTP、CSV 或评分。
 
 ### `engine/`
 
-- `loader.py`：按目录发现 `rule.py` 和相邻 `config.json`，构造 `Rule` 实例。
+- `loader.py`：`list_metadata()` 只读取规则配置并返回 `RuleMetadata`；
+  `load()`/`load_all()`/`load_enabled()` 才导入 `rule.py` 并构造 `Rule` 实例。
 - `runner.py`：对一条规则构造窗口；`run_detailed()` 包装为
   `EvaluatedAssessmentEvent`。
 - `engine.py`：遍历启用规则，提供兼容的 `run()` 和保留上下文的

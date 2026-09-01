@@ -9,7 +9,11 @@ from typing import Any
 
 from dcs_performance.core.event import AssessmentEvent
 from dcs_performance.data.client import DcsDataClient
-from dcs_performance.data.history_context import get_history_with_previous_sample
+from dcs_performance.data.history_context import (
+    DEFAULT_FORWARD_SEARCH_STEPS,
+    find_next_sample,
+    get_history_with_previous_sample,
+)
 
 from dcs_performance.rules.persistent_high_alarm.detector import (
     PersistentHighAlarmDetector,
@@ -18,6 +22,7 @@ from dcs_performance.rules.persistent_high_alarm.detector import (
 
 
 CONFIRMATION_MARGIN = timedelta(seconds=1)
+DEFAULT_RECOVERY_SEARCH_HOURS = 48
 DEFAULT_RULE_ID = "persistent_high_alarm"
 DEFAULT_RULE_NAME = "持续高报考核"
 
@@ -58,6 +63,18 @@ class Rule:
         self.points = _validate_points(raw_points)
         self.threshold_seconds = _validate_threshold(
             parameters.get("threshold_seconds")
+        )
+        self.recovery_search_hours = _validate_recovery_search_hours(
+            parameters.get(
+                "recovery_search_hours",
+                DEFAULT_RECOVERY_SEARCH_HOURS,
+            )
+        )
+        self.recovery_search_limit = timedelta(
+            hours=self.recovery_search_hours
+        )
+        self.recovery_search_steps = _build_recovery_search_steps(
+            self.recovery_search_limit
         )
         raw_active_value = parameters.get("active_value")
         self.active_value = parse_digital_state(_required_value(
@@ -104,9 +121,42 @@ class Rule:
                 # assessment contract is explicitly based on alarm_start.
                 if not (start_time <= occurrence.start_time < end_time):
                     continue
-                effective_event_end = (
-                    query_end if occurrence.is_open else occurrence.end_time
-                )
+                alarm_end = occurrence.end_time
+                duration_seconds = occurrence.duration_seconds
+                is_open = occurrence.is_open
+                effective_event_end = alarm_end
+
+                if occurrence.is_open:
+                    recovery = find_next_sample(
+                        self.data,
+                        history_tag,
+                        occurrence.start_time,
+                        lambda sample: (
+                            parse_digital_state(sample.value) != self.active_value
+                        ),
+                        search_steps=self.recovery_search_steps,
+                        cursor_time=query_end,
+                    )
+                    if recovery is None:
+                        # The initial query has already confirmed the
+                        # threshold.  If no recovery is found, expose the
+                        # complete configured observation horizon rather than
+                        # stopping at the short confirmation tail.
+                        effective_event_end = max(
+                            query_end,
+                            occurrence.start_time + self.recovery_search_limit,
+                        )
+                        duration_seconds = (
+                            effective_event_end - occurrence.start_time
+                        ).total_seconds()
+                    else:
+                        alarm_end = recovery.timestamp
+                        effective_event_end = recovery.timestamp
+                        duration_seconds = (
+                            alarm_end - occurrence.start_time
+                        ).total_seconds()
+                        is_open = False
+
                 if effective_event_end is None:
                     raise RuntimeError("closed alarm occurrence has no end_time")
                 event_key = _event_key(point_id, occurrence.start_time)
@@ -119,10 +169,10 @@ class Rule:
                             "point_id": point_id,
                             "history_tag": history_tag,
                             "alarm_start": occurrence.start_time,
-                            "alarm_end": occurrence.end_time,
-                            "duration_seconds": occurrence.duration_seconds,
+                            "alarm_end": alarm_end,
+                            "duration_seconds": duration_seconds,
                             "threshold_seconds": self.threshold_seconds,
-                            "is_open": occurrence.is_open,
+                            "is_open": is_open,
                             "event_key": event_key,
                         },
                     )
@@ -173,6 +223,36 @@ def _validate_threshold(value: object) -> float:
     if not isfinite(numeric) or numeric <= 0:
         raise ValueError("parameters.threshold_seconds must be a positive number")
     return numeric
+
+
+def _validate_recovery_search_hours(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(
+            "parameters.recovery_search_hours must be a positive number"
+        )
+    numeric = float(value)
+    if not isfinite(numeric) or numeric <= 0:
+        raise ValueError(
+            "parameters.recovery_search_hours must be a positive number"
+        )
+    return numeric
+
+
+def _build_recovery_search_steps(
+    recovery_search_limit: timedelta,
+) -> tuple[timedelta, ...]:
+    """Return cumulative, increasing horizons ending at the configured limit."""
+
+    steps: list[timedelta] = []
+    for step in DEFAULT_FORWARD_SEARCH_STEPS:
+        if step >= recovery_search_limit:
+            if not steps or steps[-1] != recovery_search_limit:
+                steps.append(recovery_search_limit)
+            break
+        steps.append(step)
+    if not steps or steps[-1] != recovery_search_limit:
+        steps.append(recovery_search_limit)
+    return tuple(steps)
 
 
 def _validate_range(start_time: datetime, end_time: datetime) -> None:
