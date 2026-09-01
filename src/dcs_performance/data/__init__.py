@@ -6,7 +6,6 @@ from .errors import (
     DcsArgumentError,
     DcsDataIntegrityError,
     DcsIncompleteStreamError,
-    DcsHistoryQueryTooLargeError,
     DcsProtocolError,
     DcsRequestTimeoutError,
     DcsServiceError,
@@ -14,7 +13,6 @@ from .errors import (
 )
 from .models import (
     DcsEvent,
-    EventCursor,
     HistorySample,
     ServiceInfo,
     TagInfo,
@@ -37,7 +35,6 @@ __all__ = [
     "DcsDataClient",
     "DcsEvent",
     "DcsIncompleteStreamError",
-    "DcsHistoryQueryTooLargeError",
     "DcsHttpTransport",
     "DcsProtocolError",
     "DcsRequestTimeoutError",
@@ -48,7 +45,6 @@ __all__ = [
     "DEFAULT_FORWARD_SEARCH_STEPS",
     "DEFAULT_LOOKBACK_STEPS",
     "DEFAULT_RECOVERY_SEARCH_STEPS",
-    "EventCursor",
     "HistorySample",
     "HistoryContext",
     "HttpResponse",

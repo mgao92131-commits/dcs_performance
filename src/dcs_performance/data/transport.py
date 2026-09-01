@@ -189,7 +189,14 @@ _Result = TypeVar("_Result")
 
 
 class DcsHttpTransport:
-    """Perform GET requests with bounded retries and complete-stream checks."""
+    """Perform GET requests with bounded retries and complete-stream checks.
+
+    ``total_timeout_seconds`` is an optional soft client-operation budget. It
+    limits connection setup, retry/backoff work, and post-operation checks,
+    but it is not an operating-system-level precise interruption mechanism
+    for a blocking socket read. Individual connection and read waits remain
+    governed by ``timeout_seconds``.
+    """
 
     def __init__(
         self,
@@ -258,7 +265,10 @@ class DcsHttpTransport:
                     raise _error_from_http_response(response)
                 return response
             except HTTPError as exc:
-                error = _error_from_http_error(exc)
+                try:
+                    error = _error_from_http_error(exc)
+                except DcsIncompleteStreamError as incomplete:
+                    error = incomplete
             except DcsIncompleteStreamError as exc:
                 error = exc
             except (TimeoutError, socket.timeout) as exc:
@@ -302,17 +312,7 @@ class DcsHttpTransport:
                 "get_stream requires a response consumer",
                 code="invalid_request",
             )
-        return self._stream_get(path, params, consumer)
-
-    def stream_get(
-        self,
-        path: str,
-        params: Mapping[str, object] | None = None,
-        consumer: Callable[[HttpStreamResponse], _Result] | None = None,
-    ) -> _Result:
-        """Alias for :meth:`get_stream` for callers that prefer verb-first naming."""
-
-        return self.get_stream(path, params, consumer)
+        return self._get_stream_with_retries(path, params, consumer)
 
     def _request(
         self,
@@ -331,7 +331,7 @@ class DcsHttpTransport:
         finally:
             stream.close()
 
-    def _stream_get(
+    def _get_stream_with_retries(
         self,
         path: str,
         params: Mapping[str, object] | None,
@@ -365,7 +365,10 @@ class DcsHttpTransport:
                     )
                 return result
             except HTTPError as exc:
-                error = _error_from_http_error(exc)
+                try:
+                    error = _error_from_http_error(exc)
+                except DcsIncompleteStreamError as incomplete:
+                    error = incomplete
             except DcsIncompleteStreamError as exc:
                 error = exc
             except (
@@ -505,9 +508,18 @@ def _error_from_http_error(error: HTTPError) -> DcsServiceError:
     except (
         http.client.IncompleteRead,
         http.client.RemoteDisconnected,
+        ConnectionResetError,
+        BrokenPipeError,
+        socket.timeout,
+        TimeoutError,
+        URLError,
         OSError,
-    ):
-        body = b""
+    ) as exc:
+        raise DcsIncompleteStreamError(
+            "HTTP error response body ended incompletely",
+            code="incomplete_stream",
+            context={"http_status": error.code},
+        ) from exc
     headers = _headers_to_dict(error.headers)
     return _error_from_http_parts(error.code, headers, body)
 

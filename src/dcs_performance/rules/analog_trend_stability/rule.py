@@ -9,7 +9,6 @@ from typing import Any
 
 from dcs_performance.core.event import AssessmentEvent
 from dcs_performance.data.client import DcsDataClient
-from dcs_performance.data.errors import DcsHistoryQueryTooLargeError
 from dcs_performance.data.models import HistorySample
 from dcs_performance.engine.loader import RuleLoadError
 
@@ -219,24 +218,9 @@ class Rule:
         start_time: datetime,
         end_time: datetime,
     ) -> Mapping[str, list[HistorySample]]:
-        """Read one planned batch, retrying long ranges in safe time slices.
+        """Read one planned batch through the data-client protocol."""
 
-        The public data-client protocol remains unchanged.  The deployed DCS
-        service rejects History spans longer than 24 hours, while an
-        assessment window may be several days.  If that service-specific
-        response is received, retain the point-group batching and retry the
-        same TAG set in 12-hour slices, merging boundary duplicates.
-        """
-
-        try:
-            result = self.data_client.get_histories(tags, start_time, end_time)
-        except DcsHistoryQueryTooLargeError:
-            return _get_histories_in_chunks(
-                self.data_client,
-                tags,
-                start_time,
-                end_time,
-            )
+        result = self.data_client.get_histories(tags, start_time, end_time)
         if not isinstance(result, Mapping):
             raise TypeError("get_histories() must return a tag-to-history mapping")
         return result
@@ -405,46 +389,6 @@ def _metric_observation_end(
 
     latest = max((point.timestamp for point in points), default=end_time)
     return min(latest, end_time)
-
-
-_HISTORY_FALLBACK_CHUNK = timedelta(hours=12)
-
-
-def _get_histories_in_chunks(
-    data_client: DcsDataClient,
-    tags: list[str],
-    start_time: datetime,
-    end_time: datetime,
-) -> dict[str, list[HistorySample]]:
-    """Read a long batch in chronological slices and remove edge duplicates."""
-
-    merged: dict[str, list[HistorySample]] = {tag: [] for tag in tags}
-    cursor = start_time
-    while cursor < end_time:
-        chunk_end = min(cursor + _HISTORY_FALLBACK_CHUNK, end_time)
-        result = data_client.get_histories(tags, cursor, chunk_end)
-        if not isinstance(result, Mapping):
-            raise TypeError("get_histories() must return a tag-to-history mapping")
-        for tag in tags:
-            samples = result.get(tag, [])
-            if not isinstance(samples, list):
-                raise TypeError("get_histories() values must be lists of HistorySample")
-            merged[tag].extend(samples)
-        cursor = chunk_end
-
-    for tag, samples in merged.items():
-        unique: list[HistorySample] = []
-        seen: set[tuple[datetime, int, str]] = set()
-        for sample in samples:
-            if not isinstance(sample, HistorySample):
-                raise TypeError("get_histories() values must contain HistorySample values")
-            key = (sample.timestamp, sample.sequence_no, sample.value)
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(sample)
-        merged[tag] = unique
-    return merged
 
 
 def _clip_interval(

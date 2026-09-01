@@ -31,7 +31,14 @@ from .transport import DcsHttpTransport, HttpResponse, HttpStreamResponse
 
 
 class DcsServiceClient:
-    """Read complete History and Event ranges through dcs-service V1."""
+    """Read complete History and Event ranges through dcs-service V1.
+
+    ``total_timeout_seconds`` is an optional soft client-operation budget,
+    disabled by default.  It covers queueing, request setup, retries,
+    backoff, and completion checks, but does not guarantee precise
+    interruption of a blocking low-level stream read.  Individual network
+    connection and read waits are controlled by ``timeout_seconds``.
+    """
 
     def __init__(
         self,

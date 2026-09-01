@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from dcs_performance.data.errors import DcsHistoryQueryTooLargeError
 from dcs_performance.engine.loader import RuleLoader, RuleLoadError
 from dcs_performance.rules.analog_trend_stability.rule import QueryPlanner, Rule
 from dcs_performance.rules.analog_trend_stability.trend import DriftPoint, TrendPoint
@@ -317,45 +316,6 @@ def test_rule_recomputes_drift_evidence_inside_each_shift_slice():
         {"window_id": "short", "window_seconds": 30.0, "peak_change": 0.25},
         {"window_id": "long", "window_seconds": 60.0, "peak_change": 0.35},
     ]
-
-
-def test_rule_retries_long_history_as_batched_time_slices():
-    class TooLargeOnceClient(FakeDataClient):
-        def __init__(self, histories):
-            super().__init__(histories)
-            self.history_batch_calls = 0
-
-        def get_histories(self, tags, start_time, end_time):
-            self.history_batch_calls += 1
-            if self.history_batch_calls == 1:
-                raise DcsHistoryQueryTooLargeError(
-                    "History span exceeds MaxHistorySpanHours=24.",
-                    code="history_query_too_large",
-                )
-            return super().get_histories(tags, start_time, end_time)
-
-    client = TooLargeOnceClient(
-        {
-            "TAG-A": history(START, [0] * 10, step_seconds=10),
-        }
-    )
-    events = Rule(
-        client,
-        config(
-            [
-                point(
-                    "A",
-                    "TAG-A",
-                    window_seconds=30,
-                    stability=False,
-                    drift={"enabled": False, "windows": []},
-                )
-            ]
-        ),
-    ).evaluate(START, START + timedelta(days=2))
-
-    assert events == []
-    assert client.history_batch_calls == 6
 
 
 def test_rule_loader_constructs_the_directory_rule():

@@ -73,12 +73,14 @@ class TagInfo:
 
 @dataclass(frozen=True)
 class EventCursor:
-    """An Event incremental-synchronisation checkpoint.
+    """Internal-reserved Event cursor tuple for a future checkpoint API.
 
-    This is not a pagination cursor for a fixed Event Range query.  The
-    ``datetime_raw`` value preserves the exact server timestamp text for a
-    future checkpoint request because Python ``datetime`` stores only six
-    fractional digits while the protocol may provide seven.
+    This model is not a pagination cursor for a fixed Event Range query and
+    is not part of the top-level ``dcs_performance.data`` public API.  The
+    current ``DcsServiceClient`` does not expose Event checkpoint sync.  The
+    ``datetime_raw`` value preserves exact server timestamp text because
+    Python ``datetime`` stores only six fractional digits while the protocol
+    may provide seven.
     """
 
     datetime: datetime

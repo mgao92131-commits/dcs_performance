@@ -1,4 +1,5 @@
 import io
+from http.client import IncompleteRead
 from urllib.error import HTTPError
 
 import pytest
@@ -14,6 +15,15 @@ from dcs_performance.data.transport import DcsHttpTransport
 
 from .support import FakeUrlopenResponse
 from .support import InterruptingUrlopenResponse
+
+
+class _IncompleteErrorBody:
+    def read(self, *args, **kwargs):
+        del args, kwargs
+        raise IncompleteRead(b'{"ok":false,"error":', 100)
+
+    def close(self):
+        pass
 
 
 def test_transport_url_encodes_query_and_uses_timeout():
@@ -128,6 +138,75 @@ def test_transport_invalid_error_body_keeps_bounded_summary():
     assert caught.value.code == "invalid_error_response"
     assert caught.value.status_code == 500
     assert len(caught.value.response_body_summary) <= 515
+
+
+def test_http_error_body_incomplete_is_transport_error():
+    def opener(request, timeout):
+        del timeout
+        raise HTTPError(
+            request.full_url,
+            503,
+            "service unavailable",
+            {},
+            _IncompleteErrorBody(),
+        )
+
+    transport = DcsHttpTransport(
+        "http://service",
+        max_retries=0,
+        opener=opener,
+    )
+
+    with pytest.raises(DcsIncompleteStreamError) as caught:
+        transport.get("/health")
+
+    assert caught.value.code == "incomplete_stream"
+    assert caught.value.code != "invalid_error_response"
+    assert caught.value.status_code is None
+
+
+def test_incomplete_http_error_body_retries_whole_request():
+    calls = []
+    sleeps = []
+
+    def opener(request, timeout):
+        del timeout
+        calls.append(request.full_url)
+        if len(calls) == 1:
+            raise HTTPError(
+                request.full_url,
+                503,
+                "service unavailable",
+                {},
+                _IncompleteErrorBody(),
+            )
+        if len(calls) == 2:
+            raise HTTPError(
+                request.full_url,
+                503,
+                "service unavailable",
+                {},
+                io.BytesIO(
+                    b'{"ok":false,"error":{"code":"service_busy","message":"busy"}}'
+                ),
+            )
+        return FakeUrlopenResponse(200, b"ok", {})
+
+    transport = DcsHttpTransport(
+        "http://service",
+        max_retries=2,
+        sleep_fn=sleeps.append,
+        random_fn=lambda: 0.0,
+        opener=opener,
+    )
+
+    assert transport.get("/health").status == 200
+    assert calls == [
+        "http://service/health",
+        "http://service/health",
+        "http://service/health",
+    ]
+    assert sleeps == [1.0, 2.0]
 
 
 def test_transport_total_timeout_stops_retry_backoff_chain():

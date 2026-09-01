@@ -67,20 +67,6 @@ class DcsDataIntegrityError(DcsServiceError):
     """The service reports that returned Event data may be incomplete."""
 
 
-class DcsHistoryQueryTooLargeError(DcsServiceError):
-    """A History request exceeded the service's supported result size."""
-
-    tag: str | None
-    start_time: object | None
-    end_time: object | None
-
-    def __init__(self, message: str, **kwargs: object) -> None:
-        self.tag = None
-        self.start_time = None
-        self.end_time = None
-        super().__init__(message, **kwargs)  # type: ignore[arg-type]
-
-
 _DATA_INTEGRITY_CODES = frozenset(
     {
         "source_changed",
@@ -110,8 +96,6 @@ def error_from_code(
     }
     if code in _DATA_INTEGRITY_CODES:
         return DcsDataIntegrityError(message, **kwargs)
-    if code == "history_query_too_large":
-        return DcsHistoryQueryTooLargeError(message, **kwargs)
     if code == "request_timeout":
         return DcsRequestTimeoutError(message, **kwargs)
     if code == "service_busy":

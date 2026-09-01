@@ -43,10 +43,12 @@ history = client.get_history("TAG1", start_time, end_time)
 events = client.get_events(start_time, end_time)
 ```
 
-`total_timeout_seconds` 默认是 `None`，表示不设置整个 CSV 流的硬截止时间；单次
-连接和读取仍受 `timeout_seconds` 约束。`get_histories()` 继续按 TAG 发起请求，
-并通过 `/api/v1/info` 的 `historyMaxConcurrent` 控制同一客户端实例的并发。
-Event 请求同理遵守 `eventMaxConcurrent`。
+`total_timeout_seconds` 默认是 `None`。显式设置时，它是可选的客户端操作总时间预算，
+用于约束并发槽等待、请求建立、重试、退避以及完成后的截止检查；它不应被理解为
+能够精确强制打断正在进行的底层阻塞读取。单次网络连接/读取等待由
+`timeout_seconds` 控制。`get_histories()` 继续按 TAG 发起请求，并通过
+`/api/v1/info` 的 `historyMaxConcurrent` 控制同一客户端实例的并发。Event 请求同理
+遵守 `eventMaxConcurrent`。
 
 ## 完整范围流
 
@@ -82,11 +84,11 @@ predicate 异常会继续向调用方传播。
 
 ## Event Cursor
 
-`EventCursor` 仅表示 Event 增量同步 checkpoint，包含 `DateTime`、`FracSec` 和
-`Ord`（以及可选的原始时间文本）。它不是 `get_events()` 的分页游标；当前考核
-查询不会内部调用 Cursor，也不读取分页 Header。若以后实现增量同步，Cursor 请求
-必须同时发送 `afterTime`、`afterFracSec`、`afterOrd`、`sourceGeneration` 和
-`to`。
+`EventCursor` 当前仅为 `models.py` 中内部预留的 Event cursor 三元组模型，包含
+`DateTime`、`FracSec` 和 `Ord`（以及可选的原始时间文本）。它不是
+`get_events()` 的分页游标；当前 `DcsServiceClient` 不公开 Event checkpoint 增量
+读取 API，也不会内部调用 Cursor。未来真正实现同步时，还必须把
+`sourceGeneration` 和 `to` 与该三元组一起纳入完整 checkpoint 请求。
 
 ## 模型和错误
 

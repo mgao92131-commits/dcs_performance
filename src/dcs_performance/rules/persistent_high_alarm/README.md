@@ -68,5 +68,4 @@ OPEN，并将观察时长延伸到配置的搜索上限。
 ## 失败行为
 
 缺少数据客户端、点位、TAG、阈值或有效数字状态都会明确失败。DCS 数据层
-抛出的 `DcsServiceError`、`DcsHistoryQueryTooLargeError` 和数据完整性错误
-不会被规则捕获为“空事件”。
+抛出的 `DcsServiceError` 和数据完整性错误不会被规则捕获为“空事件”。
