@@ -7,6 +7,7 @@ import pytest
 from dcs_performance.data.dcs_service import DcsServiceClient
 from dcs_performance.data.errors import DcsArgumentError, DcsDataIntegrityError
 from dcs_performance.data.parsers import EVENT_COLUMNS
+from dcs_performance.data.transport import HttpStreamResponse
 
 from .support import FakeTransport, event_response, json_response, make_csv
 from .test_history_client import SERVICE_INFO
@@ -37,14 +38,14 @@ def _event_body(timestamp="2026-08-30T08:30:00.123", frac_sec=123, ordinal=1):
     )
 
 
-def test_get_events_returns_raw_events_for_fixed_half_open_range():
+def test_get_events_returns_full_range_without_limit_or_pagination_headers():
     transport = FakeTransport(
         [
             json_response(SERVICE_INFO),
-            event_response(_event_body(), rows=1, has_more=False),
+            event_response(_event_body()),
         ]
     )
-    client = DcsServiceClient("http://service", transport=transport, event_page_limit=50)
+    client = DcsServiceClient("http://service", transport=transport)
 
     events = client.get_events(
         datetime(2026, 8, 30, 8),
@@ -58,13 +59,13 @@ def test_get_events_returns_raw_events_for_fixed_half_open_range():
         {
             "from": "2026-08-30T08:00:00",
             "to": "2026-08-30T09:00:00",
-            "limit": 50,
         },
     )
 
 
 def test_get_events_rejects_aware_datetime_before_network_access():
     client = DcsServiceClient("http://service", transport=FakeTransport([]))
+
     with pytest.raises(DcsArgumentError):
         client.get_events(
             datetime(2026, 8, 30, 8, tzinfo=timezone.utc),
@@ -100,13 +101,20 @@ class ConcurrentEventTransport:
     def get(self, path, params=None):
         if path == "/api/v1/info":
             return json_response({**SERVICE_INFO, "eventMaxConcurrent": 1})
+        raise AssertionError(f"unexpected buffered request: {path}")
+
+    def get_stream(self, path, params=None, consumer=None):
         assert path == "/api/v1/events"
         with self.lock:
             self.active += 1
             self.max_active = max(self.max_active, self.active)
         try:
             time.sleep(0.01)
-            return event_response(_event_body(), rows=1, has_more=False)
+            response = HttpStreamResponse.from_http_response(event_response(_event_body()))
+            try:
+                return consumer(response)
+            finally:
+                response.close()
         finally:
             with self.lock:
                 self.active -= 1

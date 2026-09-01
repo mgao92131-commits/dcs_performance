@@ -26,10 +26,6 @@ DEFAULT_FORWARD_SEARCH_STEPS = (
     timedelta(hours=48),
 )
 DEFAULT_RECOVERY_SEARCH_STEPS = DEFAULT_FORWARD_SEARCH_STEPS
-# dcs-service documents a 24-hour maximum History span.  Longer cumulative
-# horizons are split here, at the generic data-access boundary, rather than
-# making individual rules implement another query splitter.
-MAX_FORWARD_QUERY_SPAN = timedelta(hours=24)
 
 
 def get_history_with_previous_sample(
@@ -284,21 +280,17 @@ def find_next_sample(
         if horizon_end <= cursor:
             continue
 
-        while cursor < horizon_end:
-            chunk_end = min(
-                horizon_end,
-                cursor + MAX_FORWARD_QUERY_SPAN,
-            )
-            samples = client.get_history(tag, cursor, chunk_end)
-            ordered = _normalise_samples(samples)
-            for sample in ordered:
-                if not (cursor <= sample.timestamp < chunk_end):
-                    continue
-                if sample.timestamp <= start_time:
-                    continue
-                if predicate(sample):
-                    return sample
-            cursor = chunk_end
+        query_start = cursor
+        samples = client.get_history(tag, query_start, horizon_end)
+        ordered = _normalise_samples(samples)
+        for sample in ordered:
+            if not (query_start <= sample.timestamp < horizon_end):
+                continue
+            if sample.timestamp <= start_time:
+                continue
+            if predicate(sample):
+                return sample
+        cursor = horizon_end
 
     return None
 
@@ -331,18 +323,11 @@ def _iter_reverse_lookback_ranges(
     """Yield nearest-first, non-overlapping lookback ranges.
 
     Lookback steps are cumulative horizons. Each gap is queried from the
-    nearest boundary backwards, and every request is capped at the documented
-    maximum History span.
+    nearest boundary backwards. The ranges are business search horizons; the
+    dcs-service owns any internal stream windowing.
     """
 
-    max_horizon = lookback_steps[-1] if lookback_steps else timedelta(0)
-    boundaries = {timedelta(0), *lookback_steps}
-    boundary = MAX_FORWARD_QUERY_SPAN
-    while boundary < max_horizon:
-        boundaries.add(boundary)
-        boundary += MAX_FORWARD_QUERY_SPAN
-
-    ordered_boundaries = sorted(boundaries)
+    ordered_boundaries = [timedelta(0), *lookback_steps]
     for previous_horizon, horizon in zip(
         ordered_boundaries,
         ordered_boundaries[1:],

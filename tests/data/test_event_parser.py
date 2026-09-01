@@ -1,7 +1,13 @@
+import io
+
 import pytest
 
 from dcs_performance.data.errors import DcsProtocolError
-from dcs_performance.data.parsers import EVENT_COLUMNS, parse_event_csv
+from dcs_performance.data.parsers import (
+    EVENT_COLUMNS,
+    parse_event_csv,
+    parse_event_csv_stream,
+)
 
 from .support import make_csv
 
@@ -69,3 +75,8 @@ def test_event_parser_rejects_invalid_archived_value():
     with pytest.raises(DcsProtocolError, match="true or false"):
         parse_event_csv(make_csv(EVENT_COLUMNS, [row]))
 
+
+def test_event_parser_accepts_a_text_stream():
+    body = make_csv(EVENT_COLUMNS, [])
+
+    assert parse_event_csv_stream(io.StringIO(body.decode("utf-8"))) == []

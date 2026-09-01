@@ -5,6 +5,7 @@ import pytest
 
 from dcs_performance.data.errors import (
     DcsDataIntegrityError,
+    DcsIncompleteStreamError,
     DcsRequestTimeoutError,
     DcsServiceBusyError,
     DcsServiceError,
@@ -12,6 +13,7 @@ from dcs_performance.data.errors import (
 from dcs_performance.data.transport import DcsHttpTransport
 
 from .support import FakeUrlopenResponse
+from .support import InterruptingUrlopenResponse
 
 
 def test_transport_url_encodes_query_and_uses_timeout():
@@ -35,6 +37,12 @@ def test_transport_url_encodes_query_and_uses_timeout():
         "method": "GET",
         "timeout": 70,
     }
+
+
+def test_transport_has_no_default_total_download_deadline():
+    transport = DcsHttpTransport("http://service", opener=lambda request, timeout: None)
+
+    assert transport.total_timeout_seconds is None
 
 
 def test_transport_retries_service_busy_with_injected_backoff():
@@ -157,3 +165,60 @@ def test_transport_total_timeout_stops_retry_backoff_chain():
     assert caught.value.code == "request_timeout"
     assert len(calls) == 2
     assert clock[0] == 1.0
+
+
+def test_transport_retries_an_incomplete_stream_without_returning_partial_text():
+    body = b"header\nfirst\nsecond\n"
+    responses = [
+        InterruptingUrlopenResponse(body, {"Content-Type": "text/csv"}, split_at=10),
+        FakeUrlopenResponse(200, body, {"Content-Type": "text/csv"}),
+    ]
+    calls = []
+
+    def opener(request, timeout):
+        calls.append(request.full_url)
+        return responses.pop(0)
+
+    transport = DcsHttpTransport(
+        "http://service",
+        max_retries=1,
+        sleep_fn=lambda _: None,
+        random_fn=lambda: 0.0,
+        opener=opener,
+    )
+
+    def consume(response):
+        text = response.text_stream()
+        try:
+            return text.read()
+        finally:
+            text.close()
+
+    assert transport.get_stream("/api/v1/history", {"tag": "TAG"}, consume) == body.decode()
+    assert calls == [
+        "http://service/api/v1/history?tag=TAG",
+        "http://service/api/v1/history?tag=TAG",
+    ]
+
+
+def test_transport_reports_incomplete_stream_when_no_retry_remains():
+    body = b"header\npartial"
+
+    def opener(request, timeout):
+        return InterruptingUrlopenResponse(
+            body,
+            {"Content-Type": "text/csv"},
+            split_at=8,
+        )
+
+    transport = DcsHttpTransport("http://service", max_retries=0, opener=opener)
+
+    def consume(response):
+        text = response.text_stream()
+        try:
+            return text.read()
+        finally:
+            text.close()
+
+    with pytest.raises(DcsIncompleteStreamError):
+        transport.get_stream("/api/v1/events", consumer=consume)

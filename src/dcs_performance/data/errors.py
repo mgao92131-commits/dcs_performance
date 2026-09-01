@@ -47,6 +47,14 @@ class DcsTransportError(DcsServiceError):
     """A temporary or final failure while making an HTTP request."""
 
 
+class DcsIncompleteStreamError(DcsTransportError):
+    """The service response stream ended before a complete HTTP body."""
+
+    def __init__(self, message: str, **kwargs: object) -> None:
+        kwargs.setdefault("code", "incomplete_stream")
+        super().__init__(message, **kwargs)  # type: ignore[arg-type]
+
+
 class DcsRequestTimeoutError(DcsTransportError):
     """A timeout or temporary network failure."""
 
@@ -109,4 +117,3 @@ def error_from_code(
     if code == "service_busy":
         return DcsServiceBusyError(message, **kwargs)
     return DcsServiceError(message, **kwargs)
-

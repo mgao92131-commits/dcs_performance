@@ -4,7 +4,7 @@ import csv
 import io
 import re
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Iterable
 
 from .errors import DcsArgumentError, DcsProtocolError
 from .models import DcsEvent, HistorySample
@@ -69,8 +69,8 @@ def parse_timestamp(value: str) -> datetime:
 
     Python stores microseconds (six digits).  For an input with seven digits,
     the seventh digit is deliberately truncated after the first six digits.
-    Event cursor requests never reconstruct a cursor from this value; they use
-    the exact ``X-DCS-Next-DateTime`` header text preserved separately.
+    Event checkpoint requests never reconstruct a cursor from this value; they
+    use the exact server timestamp text preserved separately.
     """
 
     if not isinstance(value, str):
@@ -120,7 +120,13 @@ def parse_bool(value: str, *, field_name: str = "boolean") -> bool:
 def parse_history_csv(body: bytes | str) -> list[HistorySample]:
     """Parse and validate the complete fixed History CSV schema."""
 
-    rows = _read_csv(body, HISTORY_COLUMNS, "History")
+    return parse_history_csv_stream(_body_to_text_stream(body, "History"))
+
+
+def parse_history_csv_stream(stream: Iterable[str]) -> list[HistorySample]:
+    """Parse a complete History CSV from a text stream."""
+
+    rows = _read_csv_stream(stream, HISTORY_COLUMNS, "History")
     samples: list[HistorySample] = []
     for row_number, row in rows:
         samples.append(
@@ -149,7 +155,13 @@ def parse_history_csv(body: bytes | str) -> list[HistorySample]:
 def parse_event_csv(body: bytes | str) -> list[DcsEvent]:
     """Parse and validate the complete fixed Event CSV schema."""
 
-    rows = _read_csv(body, EVENT_COLUMNS, "Event")
+    return parse_event_csv_stream(_body_to_text_stream(body, "Event"))
+
+
+def parse_event_csv_stream(stream: Iterable[str]) -> list[DcsEvent]:
+    """Parse a complete Event CSV from a text stream."""
+
+    rows = _read_csv_stream(stream, EVENT_COLUMNS, "Event")
     events: list[DcsEvent] = []
     for row_number, row in rows:
         timestamp_raw = row["DateTime"]
@@ -183,11 +195,7 @@ def parse_event_csv(body: bytes | str) -> list[DcsEvent]:
     return events
 
 
-def _read_csv(
-    body: bytes | str,
-    expected_columns: Iterable[str],
-    kind: str,
-) -> list[tuple[int, dict[str, str]]]:
+def _body_to_text_stream(body: bytes | str, kind: str) -> io.StringIO:
     if isinstance(body, bytes):
         try:
             text = body.decode("utf-8")
@@ -200,12 +208,19 @@ def _read_csv(
         text = body
     else:
         raise DcsProtocolError(
-            f"{kind} CSV body must be bytes or text",
+            f"{kind} CSV body must be bytes, text, or a text stream",
             code="csv_parse_error",
         )
+    return io.StringIO(text, newline="")
 
+
+def _read_csv_stream(
+    stream: Iterable[str],
+    expected_columns: Iterable[str],
+    kind: str,
+) -> list[tuple[int, dict[str, str]]]:
     try:
-        reader = csv.DictReader(io.StringIO(text, newline=""), strict=True)
+        reader = csv.DictReader(stream, strict=True)
         fieldnames = reader.fieldnames
         expected = list(expected_columns)
         if fieldnames != expected:
@@ -223,7 +238,7 @@ def _read_csv(
                 )
             rows.append((row_number, {column: row[column] for column in expected}))
         return rows
-    except csv.Error as exc:
+    except (csv.Error, UnicodeDecodeError, TypeError) as exc:
         raise DcsProtocolError(
             f"{kind} CSV could not be parsed",
             code="csv_parse_error",

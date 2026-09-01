@@ -5,7 +5,6 @@ import pytest
 from dcs_performance.data.history_context import (
     DEFAULT_FORWARD_SEARCH_STEPS,
     DEFAULT_LOOKBACK_STEPS,
-    MAX_FORWARD_QUERY_SPAN,
     find_next_sample,
     get_histories_with_previous_samples,
     get_history_with_previous_sample,
@@ -90,10 +89,10 @@ def test_context_checks_all_default_lookbacks_and_returns_no_fake_zero():
     result = get_history_with_previous_sample(client, "TAG1", START, END)
 
     assert result == []
-    assert len(client.calls) == 1 + len(DEFAULT_LOOKBACK_STEPS) + 1
+    assert len(client.calls) == 1 + len(DEFAULT_LOOKBACK_STEPS)
 
 
-def test_context_splits_reverse_lookback_ranges_at_history_limit():
+def test_context_does_not_split_reverse_lookback_ranges_at_a_24_hour_limit():
     client = FakeDataClient([[] for _ in range(6)])
 
     assert get_history_with_previous_sample(client, "TAG1", START, END) == []
@@ -102,14 +101,9 @@ def test_context_splits_reverse_lookback_ranges_at_history_limit():
         (START - timedelta(minutes=30), START),
         (START - timedelta(hours=2), START - timedelta(minutes=30)),
         (START - timedelta(hours=12), START - timedelta(hours=2)),
-        (START - timedelta(hours=24), START - timedelta(hours=12)),
-        (START - timedelta(hours=48), START - timedelta(hours=24)),
+        (START - timedelta(hours=48), START - timedelta(hours=12)),
     ]
     assert [call[1:] for call in client.calls] == expected_ranges
-    assert all(
-        end - start <= MAX_FORWARD_QUERY_SPAN
-        for start, end in expected_ranges[1:]
-    )
 
 
 def test_context_deduplicates_overlapping_samples_by_timestamp_and_sequence():
@@ -235,10 +229,9 @@ def test_find_next_sample_checks_all_default_chunks_and_returns_none():
     cursor = START
     for step in DEFAULT_FORWARD_SEARCH_STEPS:
         horizon_end = START + step
-        while cursor < horizon_end:
-            end = min(horizon_end, cursor + MAX_FORWARD_QUERY_SPAN)
-            expected_ranges.append((cursor, end))
-            cursor = end
+        if horizon_end > cursor:
+            expected_ranges.append((cursor, horizon_end))
+            cursor = horizon_end
     assert [call[1:] for call in client.calls] == expected_ranges
 
 

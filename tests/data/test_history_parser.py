@@ -1,7 +1,13 @@
+import io
+
 import pytest
 
 from dcs_performance.data.errors import DcsProtocolError
-from dcs_performance.data.parsers import HISTORY_COLUMNS, parse_history_csv
+from dcs_performance.data.parsers import (
+    HISTORY_COLUMNS,
+    parse_history_csv,
+    parse_history_csv_stream,
+)
 
 from .support import make_csv
 
@@ -87,3 +93,8 @@ def test_history_parser_handles_chinese_text_and_quoted_newline():
     ]
     assert parse_history_csv(make_csv(HISTORY_COLUMNS, [row]))[0].value == row[1]
 
+
+def test_history_parser_accepts_a_text_stream():
+    body = make_csv(HISTORY_COLUMNS, [[]])
+
+    assert parse_history_csv_stream(io.StringIO(body.decode("utf-8"))) == []

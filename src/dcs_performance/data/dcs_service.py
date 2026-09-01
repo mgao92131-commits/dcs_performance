@@ -1,9 +1,11 @@
-"""Public dcs-service V1 client used by assessment rules."""
+"""Public dcs-service client used by assessment rules."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+import io
+import json
 import random
 from threading import Condition, RLock
 import time
@@ -12,43 +14,32 @@ from typing import Any, Iterator
 from .client import DcsDataClient
 from .errors import (
     DcsArgumentError,
-    DcsDataIntegrityError,
-    DcsHistoryQueryTooLargeError,
     DcsProtocolError,
     DcsRequestTimeoutError,
     DcsServiceError,
 )
-from .models import (
-    DcsEvent,
-    EventCursor,
-    EventPage,
-    HistorySample,
-    ServiceInfo,
-    TagInfo,
-)
+from .models import DcsEvent, HistorySample, ServiceInfo, TagInfo
 from .parsers import (
     ensure_naive_datetime,
     format_timestamp,
-    parse_bool,
-    parse_event_csv,
-    parse_history_csv,
+    parse_event_csv_stream,
+    parse_history_csv_stream,
     parse_timestamp,
 )
 from .settings import DEFAULT_DCS_SERVICE_BASE_URL
-from .transport import DcsHttpTransport, HttpResponse
+from .transport import DcsHttpTransport, HttpResponse, HttpStreamResponse
 
 
 class DcsServiceClient:
-    """Read History and Event data through the documented V1 HTTP API."""
+    """Read complete History and Event ranges through dcs-service V1."""
 
     def __init__(
         self,
         base_url: str = DEFAULT_DCS_SERVICE_BASE_URL,
         *,
         timeout_seconds: float = 70,
-        total_timeout_seconds: float | None = 120,
+        total_timeout_seconds: float | None = None,
         max_retries: int = 4,
-        event_page_limit: int = 1000,
         transport: DcsHttpTransport | Any | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
         random_fn: Callable[[], float] = random.random,
@@ -57,11 +48,6 @@ class DcsServiceClient:
         if total_timeout_seconds is not None and total_timeout_seconds <= 0:
             raise DcsArgumentError(
                 "total_timeout_seconds must be greater than zero or None",
-                code="invalid_request",
-            )
-        if event_page_limit <= 0:
-            raise DcsArgumentError(
-                "event_page_limit must be greater than zero",
                 code="invalid_request",
             )
         self.total_timeout_seconds = total_timeout_seconds
@@ -78,7 +64,6 @@ class DcsServiceClient:
             random_fn=random_fn,
             monotonic_fn=monotonic_fn,
         )
-        self.event_page_limit = event_page_limit
         self._service_info: ServiceInfo | None = None
 
     def health(self) -> bool:
@@ -103,8 +88,22 @@ class DcsServiceClient:
                 version=_required_text(payload, "version"),
                 historian_server=_required_text(payload, "historianServer"),
                 source_timezone=_required_text(payload, "sourceTimeZone"),
-                history_max_concurrent=_positive_int(payload, "historyMaxConcurrent"),
-                event_max_concurrent=_positive_int(payload, "eventMaxConcurrent"),
+                history_max_concurrent=_positive_int(
+                    payload,
+                    "historyMaxConcurrent",
+                ),
+                event_max_concurrent=_positive_int(
+                    payload,
+                    "eventMaxConcurrent",
+                ),
+                history_stream_window_minutes=_positive_int(
+                    payload,
+                    "historyStreamWindowMinutes",
+                ),
+                event_stream_window_minutes=_positive_int(
+                    payload,
+                    "eventStreamWindowMinutes",
+                ),
                 read_only=_required_bool(payload, "readOnly"),
             )
             self._service_info = info
@@ -169,41 +168,38 @@ class DcsServiceClient:
             getattr(self, "_monotonic_fn", time.monotonic),
         ):
             self._check_deadline(deadline, "History query")
-            try:
-                response = self.transport.get(
-                    "/api/v1/history",
-                    {
-                        "tag": tag,
-                        "from": format_timestamp(start_time),
-                        "to": format_timestamp(end_time),
-                    },
-                )
-            except DcsHistoryQueryTooLargeError as exc:
-                exc.tag = tag
-                exc.start_time = start_time
-                exc.end_time = end_time
-                exc.add_context(
-                    tag=tag,
-                    start_time=start_time,
-                    end_time=end_time,
-                )
-                raise
+            params = {
+                "tag": tag,
+                "from": format_timestamp(start_time),
+                "to": format_timestamp(end_time),
+            }
 
-            self._check_deadline(deadline, "History query")
-            self._validate_csv_response(response, kind="History")
-            self._validate_source_timezone(response.headers, info)
-            returned_tag = _required_header_text(response.headers, "X-DCS-Tag")
-            if returned_tag != tag:
-                raise DcsProtocolError(
-                    "History response X-DCS-Tag does not match the requested TAG",
-                    code="tag_mismatch",
-                    context={"requested_tag": tag, "returned_tag": returned_tag},
+            def consume(response: HttpStreamResponse | HttpResponse):
+                self._check_deadline(deadline, "History query")
+                self._validate_csv_response(response, kind="History")
+                self._validate_source_timezone(response.headers, info)
+                returned_tag = _header(response.headers, "X-DCS-Tag")
+                if returned_tag is not None and returned_tag != tag:
+                    raise DcsProtocolError(
+                        "History response X-DCS-Tag does not match the requested TAG",
+                        code="tag_mismatch",
+                        context={
+                            "requested_tag": tag,
+                            "returned_tag": returned_tag,
+                        },
+                    )
+                return self._parse_csv_stream(
+                    response,
+                    parse_history_csv_stream,
+                    kind="History",
+                    deadline=deadline,
                 )
-            row_count = _required_header_int(response.headers, "X-DCS-Row-Count")
-            samples = parse_history_csv(response.body)
-            self._check_deadline(deadline, "History query")
-            _validate_row_count(row_count, len(samples), "History")
-            return samples
+
+            return self.transport.get_stream(
+                "/api/v1/history",
+                params,
+                consume,
+            )
 
     def get_histories(
         self,
@@ -214,7 +210,10 @@ class DcsServiceClient:
         """Read unique TAGs with at most the server's History concurrency."""
 
         if not isinstance(tags, list):
-            raise DcsArgumentError("tags must be a list of strings", code="invalid_request")
+            raise DcsArgumentError(
+                "tags must be a list of strings",
+                code="invalid_request",
+            )
         start_time, end_time = _validate_range(start_time, end_time)
         unique_tags: list[str] = []
         for tag in tags:
@@ -246,8 +245,6 @@ class DcsServiceClient:
                     results[tag] = future.result()
                 except DcsServiceError as exc:
                     exc.add_context(tag=tag)
-                    if isinstance(exc, DcsHistoryQueryTooLargeError):
-                        exc.tag = tag
                     raise
                 except Exception as exc:
                     raise DcsServiceError(
@@ -262,205 +259,38 @@ class DcsServiceClient:
         start_time: datetime,
         end_time: datetime,
     ) -> list[DcsEvent]:
-        """Return all events in the fixed half-open range ``[start, end)``."""
+        """Return all events in one complete fixed range ``[start, end)``."""
 
         start_time, end_time = _validate_range(start_time, end_time)
         deadline = self._new_deadline()
-        self._ensure_info()
+        info = self._ensure_info()
         self._check_deadline(deadline, "Event query")
         with self._event_gate.lease(deadline, self._monotonic_fn):
-            page = self._get_event_range_page(
-                start_time,
-                end_time,
-                self.event_page_limit,
-                deadline=deadline,
-            )
-            source_generation = page.source_generation
-            collected: list[DcsEvent] = []
-            seen_cursors: set[tuple[object, int, int, int]] = set()
-            start_key = _datetime_time_key(start_time)
-            end_key = _datetime_time_key(end_time)
-
-            while True:
-                self._check_deadline(deadline, "Event query")
-                if page.source_generation != source_generation:
-                    raise DcsDataIntegrityError(
-                        "Event source generation changed during a fixed-range query",
-                        status_code=200,
-                        code="source_changed",
-                        context={
-                            "expected_generation": source_generation,
-                            "actual_generation": page.source_generation,
-                        },
-                    )
-
-                crossed_end = False
-                for event in page.events:
-                    event_key = _event_time_key(event)
-                    if event_key >= end_key:
-                        crossed_end = True
-                    if start_key <= event_key < end_key:
-                        collected.append(event)
-
-                if crossed_end or not page.has_more:
-                    return collected
-
-                cursor = _cursor_from_page(page)
-                cursor_key = _cursor_key(cursor)
-                if cursor_key in seen_cursors:
-                    raise DcsDataIntegrityError(
-                        "Event cursor repeated during a fixed-range query",
-                        status_code=200,
-                        code="cursor_window_empty",
-                    )
-                seen_cursors.add(cursor_key)
-                page = self._get_event_cursor_page(
-                    cursor,
-                    source_generation,
-                    self.event_page_limit,
-                    deadline=deadline,
-                )
-
-    def _get_event_range_page(
-        self,
-        start_time: datetime,
-        end_time: datetime,
-        limit: int,
-        *,
-        deadline: float | None = None,
-    ) -> EventPage:
-        start_time, end_time = _validate_range(start_time, end_time)
-        limit = _validate_limit(limit)
-        info = self._ensure_info()
-        self._check_deadline(deadline, "Event range query")
-        response = self.transport.get(
-            "/api/v1/events",
-            {
+            self._check_deadline(deadline, "Event query")
+            params = {
                 "from": format_timestamp(start_time),
                 "to": format_timestamp(end_time),
-                "limit": limit,
-            },
-        )
-        self._check_deadline(deadline, "Event range query")
-        page = self._parse_event_page(response, info)
-        if not page.events and _page_has_next_cursor(page):
-            raise DcsProtocolError(
-                "Empty Event Range page must not include a next cursor",
-                code="invalid_cursor_headers",
-            )
-        _validate_range_page_events(page.events, start_time, end_time)
-        return page
+            }
 
-    def _get_event_cursor_page(
-        self,
-        cursor: EventCursor,
-        source_generation: str,
-        limit: int,
-        *,
-        deadline: float | None = None,
-    ) -> EventPage:
-        if not isinstance(cursor, EventCursor):
-            raise DcsArgumentError("cursor must be an EventCursor", code="invalid_request")
-        if not isinstance(source_generation, str) or not source_generation:
-            raise DcsArgumentError(
-                "source_generation must be non-empty text",
-                code="invalid_request",
-            )
-        ensure_naive_datetime(cursor.datetime, field_name="cursor.datetime")
-        limit = _validate_limit(limit)
-        info = self._ensure_info()
-        self._check_deadline(deadline, "Event cursor query")
-        after_time = cursor.datetime_raw or format_timestamp(cursor.datetime)
-        response = self.transport.get(
-            "/api/v1/events",
-            {
-                "afterTime": after_time,
-                "afterFracSec": cursor.frac_sec,
-                "afterOrd": cursor.ord,
-                "sourceGeneration": source_generation,
-                "limit": limit,
-            },
-        )
-        self._check_deadline(deadline, "Event cursor query")
-        page = self._parse_event_page(response, info)
-        if not page.events and _page_has_next_cursor(page):
-            returned_cursor = _cursor_from_page(page)
-            if _cursor_key(returned_cursor) != _cursor_key(cursor):
-                raise DcsProtocolError(
-                    "Empty Event Cursor page must repeat the supplied cursor",
-                    code="next_cursor_mismatch",
-                    context={
-                        "supplied_cursor": _cursor_key(cursor),
-                        "returned_cursor": _cursor_key(returned_cursor),
-                    },
+            def consume(response: HttpStreamResponse | HttpResponse):
+                self._check_deadline(deadline, "Event query")
+                self._validate_csv_response(response, kind="Event")
+                self._validate_source_timezone(response.headers, info)
+                events = self._parse_csv_stream(
+                    response,
+                    parse_event_csv_stream,
+                    kind="Event",
+                    deadline=deadline,
                 )
-        _validate_cursor_page_events(page.events, cursor)
-        return page
+                _validate_event_order(events)
+                _validate_event_range(events, start_time, end_time)
+                return events
 
-    def _parse_event_page(
-        self,
-        response: HttpResponse,
-        info: ServiceInfo,
-    ) -> EventPage:
-        self._validate_csv_response(response, kind="Event")
-        self._validate_source_timezone(response.headers, info)
-        row_count = _required_header_int(response.headers, "X-DCS-Row-Count")
-        source_generation = _required_header_text(
-            response.headers,
-            "X-DCS-Source-Generation",
-        )
-        has_more = _required_header_bool(response.headers, "X-DCS-Has-More")
-        events = parse_event_csv(response.body)
-        _validate_row_count(row_count, len(events), "Event")
-        _validate_event_order(events)
-        if has_more and not events:
-            raise DcsProtocolError(
-                "Event page with HasMore=true must contain at least one event",
-                code="invalid_pagination",
+            return self.transport.get_stream(
+                "/api/v1/events",
+                params,
+                consume,
             )
-
-        next_datetime_raw = _header(response.headers, "X-DCS-Next-DateTime")
-        next_frac_raw = _header(response.headers, "X-DCS-Next-FracSec")
-        next_ord_raw = _header(response.headers, "X-DCS-Next-Ord")
-        next_values = (next_datetime_raw, next_frac_raw, next_ord_raw)
-        present = tuple(value is not None for value in next_values)
-        if any(present) and not all(present):
-            raise DcsProtocolError(
-                "Event next cursor headers must be provided together",
-                code="invalid_cursor_headers",
-            )
-        if has_more and not all(present):
-            raise DcsProtocolError(
-                "Event page with HasMore=true must include a next cursor",
-                code="invalid_cursor_headers",
-            )
-
-        next_frac_sec: int | None = None
-        next_ord: int | None = None
-        next_datetime: datetime | None = None
-        if all(present):
-            assert next_datetime_raw is not None
-            assert next_frac_raw is not None
-            assert next_ord_raw is not None
-            next_datetime = parse_timestamp(next_datetime_raw)
-            next_frac_sec = _parse_header_int(next_frac_raw, "X-DCS-Next-FracSec")
-            next_ord = _parse_header_int(next_ord_raw, "X-DCS-Next-Ord")
-            _validate_next_cursor(
-                events,
-                next_datetime,
-                next_datetime_raw,
-                next_frac_sec,
-                next_ord,
-            )
-
-        return EventPage(
-            events=events,
-            source_generation=source_generation,
-            has_more=has_more,
-            next_datetime_raw=next_datetime_raw,
-            next_frac_sec=next_frac_sec,
-            next_ord=next_ord,
-        )
 
     def _ensure_info(self) -> ServiceInfo:
         return self.get_info()
@@ -515,11 +345,12 @@ class DcsServiceClient:
                     f"{path} response is not application/json",
                     code="invalid_content_type",
                 )
+        body = response.body
+        if isinstance(body, str):
+            body = body.encode("utf-8")
         try:
-            import json
-
-            payload = json.loads(response.body.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError) as exc:
+            payload = json.loads(body.decode("utf-8"))
+        except (AttributeError, UnicodeDecodeError, ValueError) as exc:
             raise DcsProtocolError(
                 f"{path} response is not valid JSON",
                 code="invalid_json",
@@ -532,7 +363,7 @@ class DcsServiceClient:
         return payload
 
     @staticmethod
-    def _validate_csv_response(response: HttpResponse, *, kind: str) -> None:
+    def _validate_csv_response(response: Any, *, kind: str) -> None:
         if response.status != 200:
             raise DcsProtocolError(
                 f"{kind} returned unexpected HTTP status {response.status}",
@@ -557,12 +388,7 @@ class DcsServiceClient:
         info: ServiceInfo,
     ) -> None:
         actual = _header(headers, "X-DCS-Source-TimeZone")
-        if actual is None:
-            raise DcsProtocolError(
-                "response is missing X-DCS-Source-TimeZone",
-                code="missing_header",
-            )
-        if actual != info.source_timezone:
+        if actual is not None and actual != info.source_timezone:
             raise DcsProtocolError(
                 "DCS source timezone changed or does not match /info",
                 code="source_timezone_mismatch",
@@ -571,6 +397,24 @@ class DcsServiceClient:
                     "actual_timezone": actual,
                 },
             )
+
+    def _parse_csv_stream(
+        self,
+        response: HttpStreamResponse | HttpResponse,
+        parser: Callable[[Iterable[str]], list[Any]],
+        *,
+        kind: str,
+        deadline: float | None,
+    ) -> list[Any]:
+        text_stream = _text_stream_for_response(response, kind)
+        try:
+            values = parser(text_stream)
+        finally:
+            close = getattr(text_stream, "close", None)
+            if callable(close):
+                close()
+        self._check_deadline(deadline, f"{kind} query")
+        return values
 
 
 def _validate_tag(tag: str) -> str:
@@ -593,60 +437,11 @@ def _validate_range(
     return start_time, end_time
 
 
-def _validate_limit(limit: int) -> int:
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
-        raise DcsArgumentError("limit must be a positive integer", code="invalid_request")
-    return limit
-
-
 def _header(headers: Mapping[str, str], name: str) -> str | None:
     for key, value in headers.items():
         if key.lower() == name.lower():
             return value
     return None
-
-
-def _required_header_text(headers: Mapping[str, str], name: str) -> str:
-    value = _header(headers, name)
-    if value is None or not value:
-        raise DcsProtocolError(
-            f"response is missing {name}",
-            code="missing_header",
-        )
-    return value
-
-
-def _required_header_int(headers: Mapping[str, str], name: str) -> int:
-    return _parse_header_int(_required_header_text(headers, name), name)
-
-
-def _parse_header_int(value: str, name: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise DcsProtocolError(
-            f"{name} must be an integer",
-            code="invalid_header",
-        ) from exc
-    if parsed < 0:
-        raise DcsProtocolError(
-            f"{name} cannot be negative",
-            code="invalid_header",
-        )
-    return parsed
-
-
-def _required_header_bool(headers: Mapping[str, str], name: str) -> bool:
-    return parse_bool(_required_header_text(headers, name), field_name=name)
-
-
-def _validate_row_count(expected: int, actual: int, kind: str) -> None:
-    if expected != actual:
-        raise DcsProtocolError(
-            f"{kind} CSV row count does not match X-DCS-Row-Count",
-            code="row_count_mismatch",
-            context={"expected_rows": expected, "actual_rows": actual},
-        )
 
 
 def _required_text(payload: Mapping[str, Any], name: str) -> str:
@@ -679,21 +474,25 @@ def _required_bool(payload: Mapping[str, Any], name: str) -> bool:
     return value
 
 
-def _cursor_from_page(page: EventPage) -> EventCursor:
-    if (
-        page.next_datetime_raw is None
-        or page.next_frac_sec is None
-        or page.next_ord is None
-    ):
-        raise DcsProtocolError(
-            "Event page has no complete next cursor",
-            code="invalid_cursor_headers",
-        )
-    return EventCursor(
-        datetime=parse_timestamp(page.next_datetime_raw),
-        frac_sec=page.next_frac_sec,
-        ord=page.next_ord,
-        datetime_raw=page.next_datetime_raw,
+def _text_stream_for_response(
+    response: HttpStreamResponse | HttpResponse,
+    kind: str,
+) -> io.TextIOBase:
+    text_stream = getattr(response, "text_stream", None)
+    if callable(text_stream):
+        return text_stream()
+    body = getattr(response, "body", None)
+    if isinstance(body, bytes):
+        try:
+            return io.StringIO(body.decode("utf-8"), newline="")
+        except UnicodeDecodeError as exc:
+            raise DcsProtocolError(
+                f"{kind} CSV is not valid UTF-8",
+                code="csv_parse_error",
+            ) from exc
+    raise DcsProtocolError(
+        f"{kind} response does not provide a text stream",
+        code="invalid_response",
     )
 
 
@@ -710,12 +509,7 @@ def _timestamp_order_key(
     value: datetime,
     raw: str | None,
 ) -> tuple[datetime, int]:
-    """Return a lossless-enough V1 timestamp ordering key.
-
-    The protocol can carry seven fractional digits, while Python datetime
-    stores six.  The raw timestamp retained by the parser supplies the
-    seventh digit for cursor/order validation.
-    """
+    """Preserve seven-digit protocol timestamp ordering where available."""
 
     if raw is not None:
         parsed = parse_timestamp(raw)
@@ -731,56 +525,20 @@ def _event_cursor_key(event: DcsEvent) -> tuple[datetime, int, int, int]:
     return timestamp, fraction, event.frac_sec, event.ord
 
 
-def _cursor_key(cursor: EventCursor) -> tuple[datetime, int, int, int]:
-    timestamp, fraction = _timestamp_order_key(cursor.datetime, cursor.datetime_raw)
-    return timestamp, fraction, cursor.frac_sec, cursor.ord
-
-
 def _validate_event_order(events: list[DcsEvent]) -> None:
     previous_key: tuple[datetime, int, int, int] | None = None
     for row_index, event in enumerate(events, start=1):
         current_key = _event_cursor_key(event)
         if previous_key is not None and current_key <= previous_key:
             raise DcsProtocolError(
-                "Event page cursors must be strictly increasing",
-                code="event_cursor_order",
+                "Event records must be strictly increasing by (DateTime, FracSec, Ord)",
+                code="event_order",
                 context={"row": row_index},
             )
         previous_key = current_key
 
 
-def _validate_next_cursor(
-    events: list[DcsEvent],
-    next_datetime: datetime,
-    next_datetime_raw: str,
-    next_frac_sec: int,
-    next_ord: int,
-) -> None:
-    if not events:
-        return
-    expected = _event_cursor_key(events[-1])
-    next_timestamp, next_fraction = _timestamp_order_key(
-        next_datetime,
-        next_datetime_raw,
-    )
-    actual = next_timestamp, next_fraction, next_frac_sec, next_ord
-    if actual != expected:
-        raise DcsProtocolError(
-            "Event next cursor does not identify the page's last event",
-            code="next_cursor_mismatch",
-            context={"expected_cursor": expected, "actual_cursor": actual},
-        )
-
-
-def _page_has_next_cursor(page: EventPage) -> bool:
-    return (
-        page.next_datetime_raw is not None
-        or page.next_frac_sec is not None
-        or page.next_ord is not None
-    )
-
-
-def _validate_range_page_events(
+def _validate_event_range(
     events: list[DcsEvent],
     start_time: datetime,
     end_time: datetime,
@@ -791,7 +549,7 @@ def _validate_range_page_events(
         event_key = _event_time_key(event)
         if event_key < start_key or event_key >= end_key:
             raise DcsProtocolError(
-                "Event Range page contains an event outside [from, to)",
+                "Event response contains an event outside [from, to)",
                 code="event_range_out_of_bounds",
                 context={
                     "row": row_index,
@@ -799,25 +557,6 @@ def _validate_range_page_events(
                     "event_timestamp_raw": event.timestamp_raw,
                 },
             )
-
-
-def _validate_cursor_page_events(
-    events: list[DcsEvent],
-    supplied_cursor: EventCursor,
-) -> None:
-    if not events:
-        return
-    first_key = _event_cursor_key(events[0])
-    supplied_key = _cursor_key(supplied_cursor)
-    if first_key <= supplied_key:
-        raise DcsProtocolError(
-            "Event Cursor page is not strictly after the supplied cursor",
-            code="event_cursor_order",
-            context={
-                "supplied_cursor": supplied_key,
-                "first_event_cursor": first_key,
-            },
-        )
 
 
 class _ConcurrencyGate:

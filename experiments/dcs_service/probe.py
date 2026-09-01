@@ -42,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Source TimeZone: {info.source_timezone}")
         print(f"History concurrency: {info.history_max_concurrent}")
         print(f"Event concurrency: {info.event_max_concurrent}")
+        print(f"History stream window: {info.history_stream_window_minutes} min")
+        print(f"Event stream window: {info.event_stream_window_minutes} min")
 
         start_time, end_time = _resolve_range(parser, args, info.source_timezone)
 
@@ -106,8 +108,23 @@ def _print_range_summary(label: str, values) -> None:
     if not values:
         print(f"{label}: first=<none> last=<none>")
         return
+    if label == "Events":
+        first = values[0]
+        last = values[-1]
+        first_time = first.timestamp_raw or first.timestamp.isoformat()
+        last_time = last.timestamp_raw or last.timestamp.isoformat()
+        print(
+            f"{label}: first=(DateTime={first_time}, "
+            f"FracSec={first.frac_sec}, Ord={first.ord}) "
+            f"last=(DateTime={last_time}, "
+            f"FracSec={last.frac_sec}, Ord={last.ord})"
+        )
+        return
     timestamps = [value.timestamp for value in values]
-    print(f"{label}: first={min(timestamps).isoformat()} last={max(timestamps).isoformat()}")
+    print(
+        f"{label}: first={min(timestamps).isoformat()} "
+        f"last={max(timestamps).isoformat()}"
+    )
 
 
 if __name__ == "__main__":

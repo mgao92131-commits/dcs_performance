@@ -2,9 +2,9 @@
 
 `dcs_performance` 是一个用于基于 DCS 历史数据和事件数据开展规则化绩效考核的 Python 项目。
 
-当前版本在保留标准三班两倒排班模块的基础上，增加了第一条真实生产考核规则
-`persistent_high_alarm`。项目不直接连接 DeltaV/DCS 数据库，而是通过只读
-dcs-service V1 HTTP API 获取 DCS 历史数据。
+当前版本在保留标准三班两倒排班模块的基础上，增加了生产考核规则
+`persistent_high_alarm` 和 `analog_limit_exceedance`。项目不直接连接
+DeltaV/DCS 数据库，而是通过只读 dcs-service V1 HTTP API 获取 DCS 数据。
 
 ## 核心职责分离
 
@@ -160,8 +160,14 @@ pytest
 
 ## DCS 数据访问层
 
-第二阶段的数据访问实现位于 `src/dcs_performance/data/`，规则层只依赖
-`DcsDataClient`。正式客户端通过构造参数接收 dcs-service V1 的 Base URL：
+数据访问实现位于 `src/dcs_performance/data/`，规则层只依赖
+`DcsDataClient`。默认通过局域网访问 dcs-service：
+
+```text
+http://192.168.1.10:8088
+```
+
+也可以通过 `DCS_SERVICE_BASE_URL` 或构造参数覆盖 Base URL：
 
 ```python
 from dcs_performance.data import DcsServiceClient
@@ -174,8 +180,9 @@ events = client.get_events(start_time, end_time)
 ```
 
 数据层负责 HTTP GET、URL 编码、CSV Schema、源时区、错误分类、有限重试和
-Event 固定范围分页。请求时间是 DCS 源本地的 naive `datetime`，不是 UTC；规则
-不需要接触 HTTP、CSV、Header 或 Event cursor。协议原文仍以
+完整范围流式 CSV。History 和 Event 一个范围各发送一个请求，不传分页参数；流
+中断时丢弃 partial data 并整段重试。请求时间是 DCS 源本地的 naive `datetime`，
+不是 UTC；规则不需要接触 HTTP、CSV、Header 或 Event checkpoint。协议原文仍以
 [`docs/API-ACCESS.zh-CN.md`](docs/API-ACCESS.zh-CN.md) 为准，客户端使用说明见
 [`docs/data-client.md`](docs/data-client.md)。
 

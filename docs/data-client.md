@@ -1,147 +1,118 @@
 # DCS 数据访问层
 
-本项目是考核客户端，使用 `DcsServiceClient` 通过 dcs-service V1 获取
-Historian 和 Event 数据。协议细节唯一以
-[`API-ACCESS.zh-CN.md`](API-ACCESS.zh-CN.md) 为准；本文只说明项目内的封装方式，
-不复制协议全文。
+`dcs_performance` 的规则层只依赖 `DcsDataClient`，由
+`DcsServiceClient` 负责访问 dcs-service 的完整范围流式 CSV 协议。默认 Base URL
+是：
+
+```text
+http://192.168.1.10:8088
+```
+
+可通过环境变量 `DCS_SERVICE_BASE_URL` 覆盖。客户端只访问 dcs-service HTTP
+API，网络转发细节对规则和数据模型透明。协议细节以
+[`API-ACCESS.zh-CN.md`](API-ACCESS.zh-CN.md) 为准。
 
 ## 规则层接口
 
-规则构造时接收数据客户端，`evaluate()` 仍只接收时间范围：
+公共接口保持稳定：
 
 ```python
-class Rule:
-    def __init__(self, data_client, config):
-        self.data = data_client
-        self.config = config
-
-    def evaluate(self, start_time, end_time):
-        samples = self.data.get_history(
-            tag=self.config["parameters"]["tag"],
-            start_time=start_time,
-            end_time=end_time,
-        )
-        return []
+class DcsDataClient:
+    def get_history(self, tag, start_time, end_time): ...
+    def get_histories(self, tags, start_time, end_time): ...
+    def get_events(self, start_time, end_time): ...
 ```
 
-规则不负责 HTTP、CSV、URL 编码、响应 Header、错误重试、Event cursor 或
-`sourceGeneration`。需要窗口开始前状态的状态型规则使用
-`data/history_context.py` 的 `get_history_with_previous_sample()`：它先读取
-正常范围，再按 30 分钟、2 小时、12 小时、48 小时回溯，最终只保留最近一条
-前置样本和 `[start_time, end_time)` 内样本；不会假造默认 `0`。
-
-需要向后寻找状态变化时使用同文件的 `find_next_sample()`。`search_steps` 是从
-逻辑起点开始的累计边界，查询从 `cursor_time` 继续且区间不重叠；超过 24 小时
-的单段会在数据访问层切开，以符合 dcs-service 的 History 查询上限。数据服务
-异常和 predicate 异常不会被转换成“未找到”。
+规则只接收源时区的 naive `datetime`，不负责 HTTP、URL 编码、CSV、响应 Header、
+重试或 Event checkpoint。`get_history()` 返回一段完整的 `HistorySample` 列表，
+`get_events()` 返回完整 `[start_time, end_time)` 范围的 `DcsEvent` 列表。
 
 ## `DcsServiceClient`
 
 ```python
-DcsServiceClient(
+from dcs_performance.data import DcsServiceClient
+
+client = DcsServiceClient(
     base_url="http://192.168.1.10:8088",
     timeout_seconds=70,
-    total_timeout_seconds=120,
+    total_timeout_seconds=None,
     max_retries=4,
-    event_page_limit=1000,
+)
+
+history = client.get_history("TAG1", start_time, end_time)
+events = client.get_events(start_time, end_time)
+```
+
+`total_timeout_seconds` 默认是 `None`，表示不设置整个 CSV 流的硬截止时间；单次
+连接和读取仍受 `timeout_seconds` 约束。`get_histories()` 继续按 TAG 发起请求，
+并通过 `/api/v1/info` 的 `historyMaxConcurrent` 控制同一客户端实例的并发。
+Event 请求同理遵守 `eventMaxConcurrent`。
+
+## 完整范围流
+
+History 请求只发送 `tag`、`from`、`to`，一个业务范围只发一个 HTTP 请求。Event
+请求只发送 `from`、`to`，也只发一个 HTTP 请求。服务端内部的
+`historyStreamWindowMinutes` 和 `eventStreamWindowMinutes` 是实现细节，客户端不
+据此切片；尤其不会固定按 24 小时拆 History。
+
+CSV parser 从 HTTP 文本流逐行读取固定 Schema，只有在响应正常读到 EOF 后才把
+列表返回。HTTP 200、已收到部分 CSV 不等于成功。
+
+如果流在 EOF 前中断，数据层会抛出 `DcsIncompleteStreamError`，丢弃该次已解析的
+所有记录，并按重试策略重新请求完整的原始范围。规则层不会看到 partial
+History/Event，也不从中断位置续传。
+
+## History 上下文搜索
+
+需要窗口开始前状态的规则使用：
+
+```python
+from dcs_performance.data.history_context import (
+    get_history_with_previous_sample,
 )
 ```
 
-公开方法：
+该 helper 先读 `[start_time, end_time)`，再按业务配置的 30 分钟、2 小时、12 小时、
+48 小时累计 horizon 回溯，最多保留一条最新前置样本。向后寻找状态变化时使用
+`find_next_sample()`；搜索 horizon 可以直接覆盖 24 小时以上，数据访问层不会为
+了废弃的服务端大小假设再次切段。
 
-- `health() -> bool`：只表示 HTTP 进程返回了 `status=ok`，不代表 Historian 或 Event Journal 一定可用。
-- `get_info(refresh=False) -> ServiceInfo`：获取并缓存服务能力和源时区；也可调用 `refresh_info()`。
-- `check_tag(tag) -> TagInfo`：保留 `HistoryTagOK`、`HistoryTagUnknown`、`HistoryTagAmbiguous` 和 `Error` 的服务端语义。
-- `get_history(tag, start_time, end_time) -> list[HistorySample]`：读取一个 TAG 的完整 History 范围。
-- `get_histories(tags, start_time, end_time) -> dict[str, list[HistorySample]]`：逐 TAG 读取，受客户端实例共享的 `/info` `historyMaxConcurrent` 限制。
-- `get_events(start_time, end_time) -> list[DcsEvent]`：读取固定的半开区间 `[start_time, end_time)`。
+没有前置样本时保持未知状态，不用 `0` 等默认值伪造状态。数据客户端异常和
+predicate 异常会继续向调用方传播。
 
-Base URL、单次请求 timeout 和一次客户端操作的总 timeout 都由构造参数提供，
-不写死在规则中。项目没有引入第三方 HTTP 依赖，底层使用 Python 标准库
-`urllib`。
+## Event Cursor
 
-## 时间语义
+`EventCursor` 仅表示 Event 增量同步 checkpoint，包含 `DateTime`、`FracSec` 和
+`Ord`（以及可选的原始时间文本）。它不是 `get_events()` 的分页游标；当前考核
+查询不会内部调用 Cursor，也不读取分页 Header。若以后实现增量同步，Cursor 请求
+必须同时发送 `afterTime`、`afterFracSec`、`afterOrd`、`sourceGeneration` 和
+`to`。
 
-所有传入客户端的 `datetime` 必须是 naive datetime，表示 dcs-service 的源本地
-时间，通常是 `China Standard Time`。带 `tzinfo` 的值会抛出
-`DcsArgumentError`；客户端不会自动转换 UTC、加 8 小时或删除 offset。
+## 模型和错误
 
-请求时间使用不带 `Z` 或 offset 的 ISO 文本。时间解析接受无小数和 1～7 位小数；
-Python 无法保存的第 7 位小数会在解析时明确截断到 microsecond。Event cursor
-请求不会从截断后的 `datetime` 重建，而是使用服务返回的原始
-`X-DCS-Next-DateTime`，并同时保留 `FracSec` 和 `Ord`。
-Event 模型还保留 CSV 中的原始 `DateTime` 文本，用于校验 next cursor，
-不把第 7 位精度丢失造成的相等误判带入分页。
+`HistorySample` 保留协议十列，`value` 保持原始文本；`DcsEvent` 保留协议十七列
+以及 `timestamp_raw`。固定范围 Event 分页状态机已经移除。
 
-## History
+错误统一继承 `DcsServiceError`。协议/Schema、范围、顺序和数据完整性错误采用
+fail-closed 语义，不返回空列表掩盖问题。
 
-`HistorySample` 保留 V1 的全部 10 列。`value` 保持服务端原始文本，数据层不
-根据 `DataType` 自动转换成 float、int 或 bool。
+## 测试与真实服务
 
-每次成功 History 请求校验：
+`tests/data/` 使用内存响应和 fake transport，不访问真实 DCS。完整测试运行：
 
-- HTTP 200；
-- media type 为 `text/csv`；
-- `X-DCS-Tag` 与请求 TAG 一致；
-- `X-DCS-Source-TimeZone` 与 `/info` 一致；
-- CSV 行数与 `X-DCS-Row-Count` 一致；
-- 完整固定 Header Schema。
+```bash
+pytest
+```
 
-`history_query_too_large` 映射为 `DcsHistoryQueryTooLargeError`，保留 TAG 和
-时间范围，客户端不会立即重复相同请求。
-
-## Event 固定范围分页
-
-`get_events(start_time, end_time)` 的公共语义是固定的 `[start_time, end_time)`，
-不是持续同步：
-
-1. 发送 Range 请求 `from`、`to`、`limit`；
-2. 读取并校验第一页的 `sourceGeneration`、`HasMore` 和行数；
-3. `HasMore=true` 时，只发送 `afterTime`、`afterFracSec`、`afterOrd`、`sourceGeneration`、`limit`；
-4. 后续 cursor 页不再发送 `to`，但客户端保留原始 `end_time`；
-5. 遇到 `timestamp >= end_time` 的事件时停止读取，并丢弃范围外事件。
-
-每个 Event page 都要求完整的 17 列 Schema 和必要 Header。所有 cursor 页必须
-保持同一个 `sourceGeneration`，页内 cursor 严格递增，next cursor 必须等于本页
-最后一条事件的 `(DateTime, FracSec, Ord)`；Cursor 页首条事件还必须严格晚于提交
-的 cursor。初始 Range 页若出现 `[from, to)` 外事件会抛协议异常；变化或其他完整性
-错误时不会返回已读取的部分结果。协议允许空 Cursor page 重复输入 cursor 并以
-`HasMore=false` 结束；客户端会校验该例外。`get_events()` 不持久化 cursor、
-checkpoint，也不启动后台同步。
-
-## 错误和重试
-
-异常统一继承 `DcsServiceError`，并保留 `status_code`、`code`、`message` 和有
-界的诊断上下文。程序分支只使用 HTTP 状态码和 `error.code`，不解析错误文本。
-
-有限重试最多由 `max_retries` 控制，退避为 1、2、4、8 秒并带 jitter，并受
-`total_timeout_seconds` 总截止时间限制。会重试：
-
-- `429 service_busy`；
-- `503 service_busy`；
-- `request_timeout`；
-- 临时网络错误。
-
-不会盲目重试：
-
-- 参数错误、404、405、413；
-- `source_changed`、`event_cursor_expired`、`retention_gap`、`cursor_ahead`；
-- `event_overflow`、`event_journal_full`。
-
-Event 完整性错误属于 fail-closed：调用方会收到异常，而不是空列表或已读取的
-部分事件。
-
-## 测试与真实环境 probe
-
-`tests/data/` 使用内存 `HttpResponse` 和 FakeTransport，不访问网络，也不要求
-dcs-service 运行。真实服务人工检查使用：
+真实环境人工检查使用：
 
 ```bash
 python experiments/dcs_service/probe.py \
   --base-url http://192.168.1.10:8088 \
-  --tag TI-021007_AI1_PV.CV \
-  --minutes 5
+  --tag "<REAL_TAG>" \
+  --from 2026-08-31T00:00:00 \
+  --to 2026-08-31T02:00:00
 ```
 
-probe 只打印服务信息、TAG 状态以及 History/Event 的行数和首尾时间，不打印
-完整数据。
+probe 会打印 Health、Info、TAG、History/Event 行数和首尾时间（Event 还包括
+`FracSec`、`Ord`），但不会把真实数据写入测试结果。

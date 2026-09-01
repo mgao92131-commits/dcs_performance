@@ -7,6 +7,7 @@ import pytest
 from dcs_performance.data.dcs_service import DcsServiceClient
 from dcs_performance.data.errors import DcsServiceError
 from dcs_performance.data.parsers import HISTORY_COLUMNS
+from dcs_performance.data.transport import HttpStreamResponse
 
 from .support import history_response, json_response, make_csv
 
@@ -18,6 +19,8 @@ SERVICE_INFO = {
     "sourceTimeZone": "China Standard Time",
     "historyMaxConcurrent": 2,
     "eventMaxConcurrent": 4,
+    "historyStreamWindowMinutes": 60,
+    "eventStreamWindowMinutes": 60,
     "readOnly": True,
 }
 
@@ -64,7 +67,33 @@ class ConcurrentHistoryTransport:
                     code="historian_unavailable",
                 )
             time.sleep(0.01)
-            return history_response(_history_body(tag), tag=tag, rows=1)
+            return history_response(_history_body(tag), tag=tag)
+        finally:
+            with self.lock:
+                self.active -= 1
+
+    def get_stream(self, path, params=None, consumer=None):
+        assert path == "/api/v1/history"
+        params = dict(params or {})
+        tag = params["tag"]
+        with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        try:
+            if tag == self.failure_tag:
+                raise DcsServiceError(
+                    "history failed",
+                    status_code=503,
+                    code="historian_unavailable",
+                )
+            time.sleep(0.01)
+            response = HttpStreamResponse.from_http_response(
+                history_response(_history_body(tag), tag=tag)
+            )
+            try:
+                return consumer(response)
+            finally:
+                response.close()
         finally:
             with self.lock:
                 self.active -= 1

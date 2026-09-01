@@ -43,7 +43,7 @@ class DcsEvent:
     is_archived: bool | None
 
     # Keep the protocol text so exact seven-digit timestamps can be compared
-    # with the next-cursor header without reconstructing them from datetime.
+    # for ordering or preserved in a future incremental checkpoint.
     timestamp_raw: str | None = None
 
 
@@ -57,6 +57,8 @@ class ServiceInfo:
     source_timezone: str
     history_max_concurrent: int
     event_max_concurrent: int
+    history_stream_window_minutes: int
+    event_stream_window_minutes: int
     read_only: bool
 
 
@@ -71,26 +73,15 @@ class TagInfo:
 
 @dataclass(frozen=True)
 class EventCursor:
-    """The complete V1 Event cursor.
+    """An Event incremental-synchronisation checkpoint.
 
-    ``datetime_raw`` preserves the exact server header text for subsequent
-    cursor requests.  This is important because Python ``datetime`` stores
-    microseconds, while the protocol may provide more timestamp precision.
+    This is not a pagination cursor for a fixed Event Range query.  The
+    ``datetime_raw`` value preserves the exact server timestamp text for a
+    future checkpoint request because Python ``datetime`` stores only six
+    fractional digits while the protocol may provide seven.
     """
 
     datetime: datetime
     frac_sec: int
     ord: int
     datetime_raw: str | None = None
-
-
-@dataclass(frozen=True)
-class EventPage:
-    """One validated Event Range or Cursor response page."""
-
-    events: list[DcsEvent]
-    source_generation: str
-    has_more: bool
-    next_datetime_raw: str | None
-    next_frac_sec: int | None
-    next_ord: int | None
