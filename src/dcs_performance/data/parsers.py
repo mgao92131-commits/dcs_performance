@@ -126,9 +126,8 @@ def parse_history_csv(body: bytes | str) -> list[HistorySample]:
 def parse_history_csv_stream(stream: Iterable[str]) -> list[HistorySample]:
     """Parse a complete History CSV from a text stream."""
 
-    rows = _read_csv_stream(stream, HISTORY_COLUMNS, "History")
     samples: list[HistorySample] = []
-    for row_number, row in rows:
+    for row_number, row in _iter_csv_rows(stream, HISTORY_COLUMNS, "History"):
         samples.append(
             HistorySample(
                 timestamp=parse_timestamp(row["Timestamp"]),
@@ -161,9 +160,8 @@ def parse_event_csv(body: bytes | str) -> list[DcsEvent]:
 def parse_event_csv_stream(stream: Iterable[str]) -> list[DcsEvent]:
     """Parse a complete Event CSV from a text stream."""
 
-    rows = _read_csv_stream(stream, EVENT_COLUMNS, "Event")
     events: list[DcsEvent] = []
-    for row_number, row in rows:
+    for row_number, row in _iter_csv_rows(stream, EVENT_COLUMNS, "Event"):
         timestamp_raw = row["DateTime"]
         archived = row["IsArchived"]
         events.append(
@@ -214,11 +212,11 @@ def _body_to_text_stream(body: bytes | str, kind: str) -> io.StringIO:
     return io.StringIO(text, newline="")
 
 
-def _read_csv_stream(
+def _iter_csv_rows(
     stream: Iterable[str],
     expected_columns: Iterable[str],
     kind: str,
-) -> list[tuple[int, dict[str, str]]]:
+) -> Iterable[tuple[int, dict[str, str]]]:
     try:
         reader = csv.DictReader(stream, strict=True)
         fieldnames = reader.fieldnames
@@ -229,15 +227,13 @@ def _read_csv_stream(
                 code="csv_schema_mismatch",
             )
 
-        rows: list[tuple[int, dict[str, str]]] = []
         for row_number, row in enumerate(reader, start=2):
             if None in row or any(row[column] is None for column in expected):
                 raise DcsProtocolError(
                     f"{kind} CSV row {row_number} does not match the V1 schema",
                     code="csv_schema_mismatch",
                 )
-            rows.append((row_number, {column: row[column] for column in expected}))
-        return rows
+            yield row_number, {column: row[column] for column in expected}
     except (csv.Error, UnicodeDecodeError, TypeError) as exc:
         raise DcsProtocolError(
             f"{kind} CSV could not be parsed",
