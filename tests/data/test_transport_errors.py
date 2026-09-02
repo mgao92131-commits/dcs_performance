@@ -162,7 +162,7 @@ def test_http_error_body_incomplete_is_transport_error():
 
     assert caught.value.code == "incomplete_stream"
     assert caught.value.code != "invalid_error_response"
-    assert caught.value.status_code is None
+    assert caught.value.status_code == 503
 
 
 def test_incomplete_http_error_body_retries_whole_request():

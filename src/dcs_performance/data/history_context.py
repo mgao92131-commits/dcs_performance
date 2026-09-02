@@ -16,11 +16,6 @@ DEFAULT_LOOKBACK_STEPS = (
     timedelta(hours=48),
 )
 
-# dcs-service accepts at most one day per History request.  Reverse context
-# lookups use this limit explicitly; the service's forward stream windowing
-# remains independent of these business search horizons.
-MAX_FORWARD_QUERY_SPAN = timedelta(hours=24)
-
 # These are cumulative forward horizons from the logical search start.  The
 # helper turns them into non-overlapping requests, so a later chunk starts at
 # the cursor reached by the previous chunk.
@@ -328,23 +323,12 @@ def _iter_reverse_lookback_ranges(
     """Yield nearest-first, non-overlapping lookback ranges.
 
     Lookback steps are cumulative horizons. Each gap is queried from the
-    nearest boundary backwards, and every request is capped at the documented
-    maximum History span.
+    nearest boundary backwards.
     """
-
-    max_horizon = lookback_steps[-1] if lookback_steps else timedelta(0)
-    boundaries = {timedelta(0), *lookback_steps}
-    boundary = MAX_FORWARD_QUERY_SPAN
-    while boundary < max_horizon:
-        boundaries.add(boundary)
-        boundary += MAX_FORWARD_QUERY_SPAN
-
-    ordered_boundaries = sorted(boundaries)
-    for previous_horizon, horizon in zip(
-        ordered_boundaries,
-        ordered_boundaries[1:],
-    ):
+    previous_horizon = timedelta(0)
+    for horizon in lookback_steps:
         yield start_time - horizon, start_time - previous_horizon
+        previous_horizon = horizon
 
 
 def _validate_multi_history_arguments(

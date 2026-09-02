@@ -517,6 +517,7 @@ def _error_from_http_error(error: HTTPError) -> DcsServiceError:
     ) as exc:
         raise DcsIncompleteStreamError(
             "HTTP error response body ended incompletely",
+            status_code=error.code,
             code="incomplete_stream",
             context={"http_status": error.code},
         ) from exc
