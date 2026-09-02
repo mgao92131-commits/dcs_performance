@@ -15,7 +15,7 @@ def test_list_metadata_does_not_require_a_data_client():
         ("analog_trend_stability", True),
         ("example_rule", True),
         ("persistent_high_alarm", True),
-        ("pump_flow_compliance", False),
+        ("pump_flow_compliance", True),
     ]
     assert next(
         item for item in metadata if item.id == "persistent_high_alarm"

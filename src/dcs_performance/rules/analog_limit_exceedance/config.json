@@ -41,6 +41,116 @@
           "min_duration_seconds": 600,
           "merge_gap_seconds": 30
         }
+      },
+      {
+        "id": "LIC-013107",
+        "history_tag": "LIC-013107/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 30.0, "min_duration_seconds": 300, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 75.0, "min_duration_seconds": 300, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "LIC-017149",
+        "history_tag": "LICA-017149/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 37.0, "min_duration_seconds": 300, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 43.0, "min_duration_seconds": 300, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "LIC-217016",
+        "history_tag": "LIC-217016/PID1/PV.CV",
+        "enabled": true,
+        "smoothing": {
+          "enabled": true,
+          "method": "trailing_mean",
+          "window_seconds": 3600,
+          "min_samples": 30
+        },
+        "low": {"enabled": true, "limit": 38.5, "min_duration_seconds": 300, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 39.5, "min_duration_seconds": 300, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "TIC-013060",
+        "history_tag": "TIC-013060/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 110.0, "min_duration_seconds": 1800, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 125.0, "min_duration_seconds": 1800, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "LIC-013065",
+        "history_tag": "LIC-013065/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 62.0, "min_duration_seconds": 600, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 68.0, "min_duration_seconds": 600, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "TIC-012022",
+        "history_tag": "TIC-012022/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 288.3, "min_duration_seconds": 600, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 289.7, "min_duration_seconds": 600, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "TIC-015009",
+        "history_tag": "TIC-015009/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 289.3, "min_duration_seconds": 600, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 290.7, "min_duration_seconds": 600, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "TIC-117117",
+        "history_tag": "TIC-117117/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 297.3, "min_duration_seconds": 600, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 298.7, "min_duration_seconds": 600, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "TIC-217117",
+        "history_tag": "TIC-217117/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 297.3, "min_duration_seconds": 600, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 298.7, "min_duration_seconds": 600, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "TIC-117001",
+        "history_tag": "TIC-117001/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 280.3, "min_duration_seconds": 600, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 281.7, "min_duration_seconds": 600, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "TIC-217001",
+        "history_tag": "TIC-217001/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 280.3, "min_duration_seconds": 600, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 281.7, "min_duration_seconds": 600, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "TIA-023052",
+        "history_tag": "TIA-023052/AI1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 110.0, "min_duration_seconds": 3600, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 140.0, "min_duration_seconds": 3600, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "TI-011003",
+        "history_tag": "TI-011003/AI1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 90.0, "min_duration_seconds": 600, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 100.0, "min_duration_seconds": 600, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "VIT-118020",
+        "history_tag": "VIT-118020/AI1/PV.CV",
+        "enabled": true,
+        "smoothing": {
+          "enabled": true,
+          "method": "trailing_mean",
+          "window_seconds": 300,
+          "min_samples": 10
+        },
+        "low": {"enabled": true, "limit": 0.641, "min_duration_seconds": 300, "merge_gap_seconds": 180},
+        "high": {"enabled": true, "limit": 0.643, "min_duration_seconds": 300, "merge_gap_seconds": 180}
       }
     ]
   },
@@ -54,7 +164,21 @@
       "LICA-012019": {
         "low_limit": 2,
         "high_limit": 2
-      }
+      },
+      "LIC-013107": {"low_limit": 1, "high_limit": 1},
+      "LIC-017149": {"low_limit": 1, "high_limit": 1},
+      "LIC-217016": {"low_limit": 1, "high_limit": 1},
+      "TIC-013060": {"low_limit": 1, "high_limit": 1},
+      "LIC-013065": {"low_limit": 1, "high_limit": 1},
+      "TIC-012022": {"low_limit": 1, "high_limit": 1},
+      "TIC-015009": {"low_limit": 1, "high_limit": 1},
+      "TIC-117117": {"low_limit": 1, "high_limit": 1},
+      "TIC-217117": {"low_limit": 1, "high_limit": 1},
+      "TIC-117001": {"low_limit": 1, "high_limit": 1},
+      "TIC-217001": {"low_limit": 1, "high_limit": 1},
+      "TIA-023052": {"low_limit": 1, "high_limit": 1},
+      "TI-011003": {"low_limit": 1, "high_limit": 1},
+      "VIT-118020": {"low_limit": 1, "high_limit": 1}
     }
   }
 }

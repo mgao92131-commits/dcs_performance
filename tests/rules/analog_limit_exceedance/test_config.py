@@ -1,5 +1,6 @@
 from copy import deepcopy
 from math import inf, nan
+from pathlib import Path
 
 import pytest
 
@@ -7,6 +8,8 @@ from dcs_performance.rules.analog_limit_exceedance.config import (
     AnalogLimitExceedanceConfig,
     LimitSideConfig,
     PointConfig,
+    SmoothingConfig,
+    load_config,
     parse_config,
 )
 
@@ -63,6 +66,8 @@ def test_parse_valid_config():
     assert isinstance(parsed, AnalogLimitExceedanceConfig)
     assert isinstance(parsed.points[0], PointConfig)
     assert isinstance(parsed.points[0].low, LimitSideConfig)
+    assert isinstance(parsed.points[0].smoothing, SmoothingConfig)
+    assert parsed.points[0].smoothing.enabled is False
     assert parsed.id == "analog_limit_exceedance"
     assert parsed.points[0].low.limit == 80.0
     assert parsed.points[0].high.min_duration_seconds == 300.0
@@ -244,3 +249,58 @@ def test_parse_config_does_not_mutate_input():
     parse_config(raw)
 
     assert raw == original
+
+
+def test_point_can_enable_trailing_mean_smoothing():
+    raw = config([point()])
+    raw["parameters"]["points"][0]["smoothing"] = {
+        "enabled": True,
+        "method": "trailing_mean",
+        "window_seconds": 30,
+        "min_samples": 10,
+    }
+
+    smoothing = parse_config(raw).points[0].smoothing
+
+    assert smoothing.enabled is True
+    assert smoothing.method == "trailing_mean"
+    assert smoothing.window_seconds == 30.0
+    assert smoothing.min_samples == 10
+
+
+@pytest.mark.parametrize(
+    "smoothing, message",
+    [
+        ({"method": "centered_mean", "window_seconds": 30}, "method"),
+        ({"method": "trailing_mean", "window_seconds": 0}, "greater than zero"),
+        (
+            {"method": "trailing_mean", "window_seconds": 30, "min_samples": 0},
+            "greater than zero",
+        ),
+    ],
+)
+def test_rejects_invalid_smoothing_configuration(smoothing, message):
+    raw = config([point()])
+    raw["parameters"]["points"][0]["smoothing"] = smoothing
+
+    with pytest.raises(ValueError, match=message):
+        parse_config(raw)
+
+
+def test_repository_config_contains_lic_217016_60_minute_band():
+    config_path = (
+        Path(__file__).resolve().parents[3]
+        / "src/dcs_performance/rules/analog_limit_exceedance/config.json"
+    )
+    parsed = load_config(config_path)
+    point = next(item for item in parsed.points if item.id == "LIC-217016")
+
+    assert point.history_tag == "LIC-217016/PID1/PV.CV"
+    assert point.smoothing.enabled is True
+    assert point.smoothing.method == "trailing_mean"
+    assert point.smoothing.window_seconds == 3600
+    assert point.smoothing.min_samples == 30
+    assert point.low.limit == 38.5
+    assert point.high.limit == 39.5
+    assert point.low.min_duration_seconds == 300
+    assert point.high.min_duration_seconds == 300

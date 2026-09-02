@@ -99,6 +99,29 @@ Rule 会通过共享的 `history_context` 查询考核窗口前最近一个样�
 }
 ```
 
+## 可选的向后滑动平均
+
+点位可以配置可选的 `smoothing`。启用后，规则对向后时间窗口内的 PV
+计算平均值，再用平均曲线执行上下限判断。时刻 `t` 只使用
+`[t-window_seconds, t]` 的样本，不读取未来数据；规则会自动查询责任窗口前的
+预热数据。
+
+```json
+"smoothing": {
+  "enabled": true,
+  "method": "trailing_mean",
+  "window_seconds": 30,
+  "min_samples": 10
+}
+```
+
+没有配置 `smoothing` 的点位继续使用原始 PV。事件数据会记录实际使用的平滑方法、
+窗口和最小样本数，便于审计。
+
+`LIC-217016/PID1/PV.CV` 使用 60 分钟后向滑动平均（至少 30 个样本），
+平滑值的正常区间为 38.5 至 39.5。低于 38.5 或高于 39.5 持续超过
+5 分钟生成超限事件。
+
 ## 当前不支持
 
 当前版本不支持 hysteresis、upper/lower recovery limit、按持续时间阶梯计分、每 N 分钟重复

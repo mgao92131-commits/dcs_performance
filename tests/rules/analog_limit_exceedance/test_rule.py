@@ -169,6 +169,43 @@ def test_rule_queries_confirmation_tail():
     )
 
 
+def test_rule_preheats_and_assesses_trailing_mean_curve():
+    smoothed_point = point()
+    smoothed_point["smoothing"] = {
+        "enabled": True,
+        "method": "trailing_mean",
+        "window_seconds": 30,
+        "min_samples": 3,
+    }
+    history = [
+        sample(START + timedelta(seconds=seconds), 121)
+        for seconds in range(0, 400, 10)
+    ]
+    history.extend(
+        sample(START + timedelta(seconds=seconds), 100)
+        for seconds in range(400, 441, 10)
+    )
+    history.extend(
+        [
+            sample(START - timedelta(seconds=30), 100),
+            sample(START - timedelta(seconds=20), 100),
+            sample(START - timedelta(seconds=10), 100),
+        ]
+    )
+    client = FakeDataClient({"TAG-P": history})
+
+    event = Rule(client, config([smoothed_point])).evaluate(START, END)[0]
+
+    assert client.calls[0][1] == START - timedelta(seconds=30)
+    assert event.start_time == START + timedelta(seconds=30)
+    assert event.data["smoothing"] == {
+        "enabled": True,
+        "method": "trailing_mean",
+        "window_seconds": 30.0,
+        "min_samples": 3,
+    }
+
+
 def test_rule_uses_previous_history_sample():
     client = FakeDataClient(
         {

@@ -18,6 +18,7 @@ dist/
 
 # Test and tooling caches
 .pytest_cache/
+.pytest-*/
 .coverage
 htmlcov/
 .mypy_cache/

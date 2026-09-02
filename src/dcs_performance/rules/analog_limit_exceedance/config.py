@@ -12,7 +12,18 @@ from typing import Any
 
 
 DEFAULT_RULE_ID = "analog_limit_exceedance"
+SUPPORTED_SMOOTHING_METHODS = frozenset({"trailing_mean"})
 DEFAULT_RULE_NAME = "连续量上下限超限考核"
+
+
+@dataclass(frozen=True)
+class SmoothingConfig:
+    """Optional time-based preprocessing for one point."""
+
+    enabled: bool = False
+    method: str = "trailing_mean"
+    window_seconds: float = 1.0
+    min_samples: int = 1
 
 
 @dataclass(frozen=True)
@@ -32,6 +43,7 @@ class PointConfig:
     id: str
     history_tag: str
     enabled: bool
+    smoothing: SmoothingConfig
     low: LimitSideConfig
     high: LimitSideConfig
 
@@ -157,6 +169,7 @@ def _parse_point(raw_point: object, index: int) -> PointConfig:
     point_id = _required_text(raw_point, "id", prefix=prefix)
     history_tag = _required_text(raw_point, "history_tag", prefix=prefix)
     enabled = _boolean(raw_point.get("enabled", True), f"{prefix}.enabled")
+    smoothing = _parse_smoothing(raw_point.get("smoothing"), prefix)
 
     low = _parse_side(raw_point.get("low"), f"{prefix}.low")
     high = _parse_side(raw_point.get("high"), f"{prefix}.high")
@@ -173,8 +186,34 @@ def _parse_point(raw_point: object, index: int) -> PointConfig:
         id=point_id,
         history_tag=history_tag,
         enabled=enabled,
+        smoothing=smoothing,
         low=low,
         high=high,
+    )
+
+
+def _parse_smoothing(raw: object, prefix: str) -> SmoothingConfig:
+    if raw is None:
+        return SmoothingConfig()
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{prefix}.smoothing must be an object")
+
+    enabled = _boolean(raw.get("enabled", True), f"{prefix}.smoothing.enabled")
+    method = raw.get("method", "trailing_mean")
+    if not isinstance(method, str) or method not in SUPPORTED_SMOOTHING_METHODS:
+        allowed = ", ".join(sorted(SUPPORTED_SMOOTHING_METHODS))
+        raise ValueError(f"{prefix}.smoothing.method must be one of: {allowed}")
+    return SmoothingConfig(
+        enabled=enabled,
+        method=method,
+        window_seconds=_positive_number(
+            raw.get("window_seconds", 1),
+            f"{prefix}.smoothing.window_seconds",
+        ),
+        min_samples=_positive_int(
+            raw.get("min_samples", 1),
+            f"{prefix}.smoothing.min_samples",
+        ),
     )
 
 
@@ -246,6 +285,13 @@ def _integer(value: object, field_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field_name} must be an integer")
     return value
+
+
+def _positive_int(value: object, field_name: str) -> int:
+    result = _integer(value, field_name)
+    if result <= 0:
+        raise ValueError(f"{field_name} must be greater than zero")
+    return result
 
 
 def _finite_number(value: object, field_name: str) -> float:

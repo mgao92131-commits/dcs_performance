@@ -26,6 +26,9 @@ from dcs_performance.rules.analog_limit_exceedance.detector import (
     AnalogLimitExceedanceDetector,
     LimitEventType,
 )
+from dcs_performance.rules.analog_limit_exceedance.smoothing import (
+    smooth_history_samples,
+)
 
 
 CONFIRMATION_MARGIN = timedelta(seconds=1)
@@ -94,15 +97,21 @@ class Rule:
             + timedelta(seconds=self.max_confirmation_tail_seconds)
             + CONFIRMATION_MARGIN
         )
+        analysis_start = start_time - timedelta(
+            seconds=_max_smoothing_window_seconds(enabled_points)
+        )
         histories = self._get_histories(
             enabled_points,
-            start_time,
+            analysis_start,
             query_end,
         )
 
         events: list[AssessmentEvent] = []
         for point in enabled_points:
-            samples = histories.get(point.history_tag, [])
+            samples = smooth_history_samples(
+                histories.get(point.history_tag, []),
+                point.smoothing,
+            )
             occurrences = self.detector.detect(
                 samples,
                 point,
@@ -205,6 +214,12 @@ class Rule:
                 "extreme_value": extreme_value,
                 "extreme_time": extreme_time,
                 "is_open": is_open,
+                "smoothing": {
+                    "enabled": point.smoothing.enabled,
+                    "method": point.smoothing.method,
+                    "window_seconds": point.smoothing.window_seconds,
+                    "min_samples": point.smoothing.min_samples,
+                },
                 "event_key": _event_key(point.id, event_type, event_start),
             },
         )
@@ -227,6 +242,17 @@ def _max_confirmation_tail_seconds(points: tuple[PointConfig, ...]) -> float:
         if side.enabled
     ]
     return max(tails, default=0.0)
+
+
+def _max_smoothing_window_seconds(points: tuple[PointConfig, ...]) -> float:
+    return max(
+        (
+            point.smoothing.window_seconds
+            for point in points
+            if point.enabled and point.smoothing.enabled
+        ),
+        default=0.0,
+    )
 
 
 def _event_key(point_id: str, event_type: str, event_start: datetime) -> str:
