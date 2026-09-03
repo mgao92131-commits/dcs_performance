@@ -176,6 +176,7 @@ LA-215077  LA-215177  LA-217075
   -> Shift
   -> RuleLoader.load_enabled()
   -> build_assessment_window(shift, rule_config)
+  -> 点位 assessment_window 覆盖（如有）
   -> Rule.evaluate(window.start_time, window.end_time)
   -> EvaluatedAssessmentEvent
   -> AssessmentScorer
@@ -197,7 +198,7 @@ API、实时推送、调班/换班/加班或人工班次覆盖。`EventCursor` �
 
 ## 开发与测试
 
-项目使用 `src` 布局，当前没有额外的运行时依赖。安装本地包并运行测试：
+项目使用 `src` 布局，运行时绘图依赖由 `matplotlib` 提供。安装本地包并运行测试：
 
 ```bash
 pip install -e .
@@ -298,6 +299,7 @@ dcs_performance/
 - [`docs/rule-interface.md`](docs/rule-interface.md)
 - [`docs/shift-model.md`](docs/shift-model.md)
 - [`docs/result-package.md`](docs/result-package.md)
+- [`docs/assessment-points.md`](docs/assessment-points.md)
 
 ## Result Package 生产运行
 

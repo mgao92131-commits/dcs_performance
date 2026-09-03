@@ -1,8 +1,10 @@
 from datetime import datetime
 
+from dcs_performance.core.event import AssessmentEvent
 from dcs_performance.engine.engine import AssessmentEngine
-from dcs_performance.engine.loader import RuleLoader
+from dcs_performance.engine.loader import LoadedRule, RuleLoader
 from dcs_performance.core.evaluation import EvaluatedAssessmentEvent
+from dcs_performance.engine.runner import RuleRunner
 from dcs_performance.shifts.model import Shift
 
 
@@ -72,3 +74,64 @@ def test_engine_run_detailed_preserves_rule_shift_window_and_config():
     assert executions[0].rule_id == "example_rule"
     assert executions[0].events == ()
     assert executions[0].window.start_time == datetime(2026, 8, 31, 8, 20)
+
+
+def test_runner_applies_independent_point_windows_without_changing_rule_protocol():
+    class WindowAwareRule:
+        id = "window_rule"
+        name = "Window rule"
+
+        def __init__(self):
+            self.calls = []
+
+        def evaluate(self, start_time, end_time):
+            self.calls.append((start_time, end_time))
+            event_end = min(end_time, start_time.replace(hour=start_time.hour + 1))
+            return [
+                AssessmentEvent(
+                    start_time,
+                    event_end,
+                    data={"point_id": point_id, "event_type": "test"},
+                )
+                for point_id in ("A", "B")
+            ]
+
+    rule = WindowAwareRule()
+    config = {
+        "id": "window_rule",
+        "name": "Window rule",
+        "enabled": True,
+        "assessment_window": {
+            "start_offset_minutes": -10,
+            "end_offset_minutes": 10,
+        },
+        "parameters": {
+            "points": [
+                {"id": "A"},
+                {
+                    "id": "B",
+                    "assessment_window": {"start_offset_minutes": 30},
+                },
+            ]
+        },
+    }
+    shift = Shift(
+        team_id="A",
+        shift_type="day",
+        start_time=datetime(2026, 8, 31, 8, 0),
+        end_time=datetime(2026, 8, 31, 20, 0),
+    )
+
+    execution = RuleRunner().run_execution(shift, LoadedRule(rule, config))
+
+    assert rule.calls == [
+        (datetime(2026, 8, 31, 7, 50), datetime(2026, 8, 31, 19, 50)),
+        (datetime(2026, 8, 31, 8, 30), datetime(2026, 8, 31, 19, 50)),
+    ]
+    assert execution.window_for_point("A").start_time == datetime(2026, 8, 31, 7, 50)
+    assert execution.window_for_point("B").start_time == datetime(2026, 8, 31, 8, 30)
+    assert [event.event.data["point_id"] for event in execution.events] == ["A", "B"]
+    assert [event.window.start_time for event in execution.events] == [
+        datetime(2026, 8, 31, 7, 50),
+        datetime(2026, 8, 31, 8, 30),
+    ]

@@ -78,8 +78,9 @@ Loader 只要求目录包含 `rule.py` 和 `config.json`，并从 `rule.py` 中�
 `rules/<rule_id>/visualization.py`。
 
 该模块暴露 `Visualizer.render_point(context, output_path)`。上下文提供规则、考核
-点配置、Shift、规则实际 assessment window、该 `(rule_id, point_id)` 已评分事件
-以及只读 `DcsDataClient`。
+点配置、Shift、该点实际生效的 assessment window、该 `(rule_id, point_id)` 已评分事件
+以及只读 `DcsDataClient`。点位窗口可以通过点配置中的 `assessment_window` 覆盖规则
+默认值，未填写的偏移继续继承规则默认值。
 
 可视化只解释结果，不参与 event detection。PNG 的事件区间必须来自上下文中的
 `AssignedAssessmentEvent`；visualizer 不得重新检测或创建事件。曲线、阈值、趋势、

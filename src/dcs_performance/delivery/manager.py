@@ -174,6 +174,9 @@ class DeliveryManager:
                 assigned,
                 shift=shift,
                 window=execution.window,
+                allow_multiple_windows=_has_multiple_point_windows(
+                    execution.point_windows
+                ),
             )
             by_point: dict[str, list[AssignedAssessmentEvent]] = {
                 point_id: [] for point_id, _ in points
@@ -192,6 +195,7 @@ class DeliveryManager:
                 used_filenames[filename] = identity
                 point_events = tuple(by_point[point_id])
                 point_summary = summary.by_point[point_id]
+                point_window = execution.window_for_point(point_id)
                 context = PointVisualizationContext(
                     rule_id=execution.rule_id,
                     rule_name=execution.rule_name,
@@ -199,7 +203,7 @@ class DeliveryManager:
                     point_config=point_config,
                     rule_config=execution.config,
                     shift=shift,
-                    window=execution.window,
+                    window=point_window,
                     events=point_events,
                     data_client=self.data_client,
                 )
@@ -219,6 +223,7 @@ class DeliveryManager:
                         image_path=expected_image_path,
                         events=point_events,
                         metadata=dict(artifact.metadata),
+                        window=point_window,
                     )
                 )
             results.append(
@@ -279,6 +284,16 @@ def _validate_artifact(path: Path, artifact: Any, expected_image_path: str) -> N
     with path.open("rb") as handle:
         if handle.read(8) != b"\x89PNG\r\n\x1a\n":
             raise DeliveryError(f"visualizer output is not a PNG: {path}")
+
+
+def _has_multiple_point_windows(
+    point_windows: Mapping[str, Any],
+) -> bool:
+    windows = {
+        (window.start_time, window.end_time)
+        for window in point_windows.values()
+    }
+    return len(windows) > 1
 
 
 def _deduplicate_filename(

@@ -22,6 +22,10 @@ class PointAssessmentResult:
     image_path: str
     events: tuple[AssignedAssessmentEvent, ...]
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    # Effective point-local assessment window.  Optional only to preserve
+    # source compatibility for callers that construct this delivery model
+    # directly; published Result Packages always populate it.
+    window: TimeRange | None = None
 
 
 @dataclass(frozen=True)

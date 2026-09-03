@@ -92,3 +92,30 @@ def test_summary_rejects_events_from_multiple_shifts():
 
     with pytest.raises(ValueError, match="multiple shifts"):
         build_shift_summary([assigned("LA-115077", 1), other], points=POINTS)
+
+
+def test_summary_can_aggregate_point_local_windows_when_explicitly_enabled():
+    other_window = TimeRange(
+        start_time=datetime(2026, 8, 31, 8, 0),
+        end_time=datetime(2026, 8, 31, 20, 0),
+    )
+    other = AssignedAssessmentEvent(
+        **{
+            **assigned("LA-115177", 2).__dict__,
+            "window_start": other_window.start_time,
+            "window_end": other_window.end_time,
+        }
+    )
+
+    summary = build_shift_summary(
+        [assigned("LA-115077", 1), other],
+        points=POINTS,
+        shift=SHIFT,
+        window=WINDOW,
+        allow_multiple_windows=True,
+    )
+
+    assert summary.event_count == 2
+    assert summary.total_score == 3
+    assert summary.by_point["LA-115077"].score == 1
+    assert summary.by_point["LA-115177"].score == 2

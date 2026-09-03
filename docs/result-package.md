@@ -23,8 +23,9 @@ output/
 ## JSON V1
 
 顶层 `schema_version` 固定为 `"1.0"`。文档包含 `run`、`time_basis`、`shift`、
-`summary` 和 `rules[]`；每条规则包含实际 assessment window 与 `points[]`；每个点
-包含 `status`、`data_status`、score、PNG 相对路径和 `events[]`。
+`summary` 和 `rules[]`；每条规则包含规则级默认 assessment window 与 `points[]`；每个点
+包含实际生效的 `assessment_window`、`status`、`data_status`、score、PNG 相对路径和
+`events[]`。点位窗口由规则默认值和点位配置合并得到。
 
 JSON 使用 UTF-8、`ensure_ascii=False`、`indent=2` 和 `allow_nan=False`。datetime
 递归转换为 ISO 8601；未知业务对象会导致明确错误，不使用 `default=str`。文档不
@@ -35,7 +36,7 @@ JSON 使用 UTF-8、`ensure_ascii=False`、`indent=2` 和 `allow_nan=False`。da
 为 `partial`；无有效历史数据仍生成带 “No valid history data” 提示的 PNG。网络、
 协议或绘图异常则使整次交付失败。
 
-图片 X 轴固定为该规则的实际 assessment window，并在窗口超出正式班次时标记班次
+图片 X 轴固定为该点的实际 assessment window，并在窗口超出正式班次时标记班次
 边界。平滑、速率、趋势与状态重建所需的前后文按对应规则的查询规划读取，因此
 窗口边缘的派生曲线与规则检测使用同一处理逻辑；这些上下文样本不会写入 JSON。
 

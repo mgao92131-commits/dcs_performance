@@ -149,6 +149,51 @@ def test_events_are_grouped_by_rule_and_point(tmp_path, shift):
     ]
 
 
+def test_point_windows_reach_visualizer_and_json_for_mixed_rule_windows(
+    tmp_path,
+    shift,
+):
+    received = []
+    config = _config(
+        "rule_a",
+        [
+            {"id": "POINT-A"},
+            {
+                "id": "POINT-B",
+                "assessment_window": {"start_offset_minutes": 30},
+            },
+        ],
+    )
+    config["assessment_window"] = {
+        "start_offset_minutes": -10,
+        "end_offset_minutes": 10,
+    }
+    loaded = [LoadedRule(
+        Rule("rule_a", [_event("POINT-A"), _event("POINT-B")]),
+        config,
+    )]
+
+    result = _manager(loaded, {"rule_a": Visualizer(received)}).deliver(shift, tmp_path)
+    document = json.loads(result.result_json_path.read_text(encoding="utf-8"))
+    points = document["rules"][0]["points"]
+
+    assert [context.point_id for context in received] == ["POINT-A", "POINT-B"]
+    assert [context.window.start_time for context in received] == [
+        datetime(2026, 9, 3, 7, 50),
+        datetime(2026, 9, 3, 8, 30),
+    ]
+    assert [point["assessment_window"] for point in points] == [
+        {
+            "start": "2026-09-03T07:50:00",
+            "end": "2026-09-03T19:50:00",
+        },
+        {
+            "start": "2026-09-03T08:30:00",
+            "end": "2026-09-03T19:50:00",
+        },
+    ]
+
+
 def test_result_event_type_uses_existing_direction_metadata(tmp_path, shift):
     event = _event("POINT-1", {"event_type": "level_rate", "direction": "rate_down"})
     loaded = [LoadedRule(Rule("rule_a", [event]), _config("rule_a", [{"id": "POINT-1"}]))]

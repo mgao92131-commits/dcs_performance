@@ -61,6 +61,16 @@ def _rule_document(rule: RuleAssessmentResult) -> dict[str, Any]:
                 "score": point.score,
                 "image": point.image_path.replace("\\", "/"),
                 "events": [_event_document(event) for event in point.events],
+                **(
+                    {
+                        "assessment_window": {
+                            "start": point.window.start_time,
+                            "end": point.window.end_time,
+                        }
+                    }
+                    if point.window is not None
+                    else {}
+                ),
                 **({"metadata": point.metadata} if point.metadata else {}),
             }
             for point in rule.points

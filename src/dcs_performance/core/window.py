@@ -43,6 +43,43 @@ def build_assessment_window(
     )
 
 
+def build_point_assessment_window(
+    shift: Shift,
+    rule_config: Mapping[str, Any],
+    point_config: Mapping[str, Any],
+) -> TimeRange:
+    """Build the effective window for one configured assessment point.
+
+    A point-level ``assessment_window`` is an override of the rule-level
+    default.  Each offset may be supplied independently; an omitted point
+    offset inherits the corresponding rule-level value.  Keeping this merge
+    here means every rule and every delivery path use the same window
+    semantics without changing the :class:`AssessmentRule` protocol.
+    """
+
+    if not isinstance(rule_config, Mapping):
+        raise TypeError("rule_config must be an object")
+    if not isinstance(point_config, Mapping):
+        raise TypeError("point_config must be an object")
+
+    raw_rule_window = rule_config.get("assessment_window", {})
+    if not isinstance(raw_rule_window, Mapping):
+        raise TypeError("config.assessment_window must be an object")
+    raw_point_window = point_config.get("assessment_window", {})
+    if not isinstance(raw_point_window, Mapping):
+        raise TypeError("point.assessment_window must be an object")
+
+    merged_window = dict(raw_rule_window)
+    for key in ("start_offset_minutes", "end_offset_minutes"):
+        if key in raw_point_window:
+            merged_window[key] = raw_point_window[key]
+
+    return build_assessment_window(
+        shift,
+        {"assessment_window": merged_window},
+    )
+
+
 def _offset_minutes(value: object) -> int:
     if isinstance(value, bool):
         raise TypeError("assessment window offsets must be integers")
