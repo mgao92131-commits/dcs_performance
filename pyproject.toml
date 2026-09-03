@@ -27,6 +27,7 @@ where = ["src"]
 "dcs_performance.rules.pump_flow_compliance" = ["config.json", "README.md"]
 "dcs_performance.rules.level_rate_compliance" = ["config.json", "README.md"]
 "dcs_performance.rules.flow_balance_compliance" = ["config.json", "README.md"]
+"dcs_performance.rules.component_viscosity_control" = ["config.json", "README.md"]
 "dcs_performance.shifts" = ["*.json"]
 
 [tool.pytest.ini_options]

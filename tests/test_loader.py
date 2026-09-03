@@ -13,6 +13,7 @@ def test_list_metadata_does_not_require_a_data_client():
     assert [(item.id, item.enabled) for item in metadata] == [
         ("analog_limit_exceedance", True),
         ("analog_trend_stability", True),
+        ("component_viscosity_control", False),
         ("example_rule", True),
         ("flow_balance_compliance", True),
         ("level_rate_compliance", True),

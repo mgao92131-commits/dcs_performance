@@ -1,0 +1,54 @@
+{
+  "id": "component_viscosity_control",
+  "name": "组件粘度趋势控制",
+  "enabled": false,
+  "assessment_window": {
+    "start_offset_minutes": 0,
+    "end_offset_minutes": 0
+  },
+  "parameters": {
+    "points": [
+      {
+        "id": "PI-2311001",
+        "history_tag": "PI-2311001/AI1/PV.CV",
+        "enabled": true,
+        "aggregation": {
+          "enabled": true,
+          "method": "median",
+          "bucket_seconds": 60,
+          "min_samples": 1
+        },
+        "smoothing": {
+          "enabled": true,
+          "method": "trailing_mean",
+          "window_seconds": 600,
+          "min_samples": 10
+        },
+        "assessment": {
+          "target": 16.05,
+          "low_limit": 15.95,
+          "high_limit": 16.25,
+          "min_duration_seconds": 600,
+          "merge_gap_seconds": 600
+        },
+        "exclusion": {
+          "enabled": true,
+          "method": "rolling_range",
+          "window_seconds": 3600,
+          "range_threshold": 1.0,
+          "merge_gap_seconds": 600,
+          "remove_after_start_seconds": 7200
+        }
+      }
+    ]
+  },
+  "scoring": {
+    "default_score_per_event": 1,
+    "by_point": {
+      "PI-2311001": {
+        "viscosity_low": 1,
+        "viscosity_high": 1
+      }
+    }
+  }
+}
