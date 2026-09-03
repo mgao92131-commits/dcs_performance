@@ -21,7 +21,11 @@ from .detector import (
     detect_limit_occurrences,
     parse_analog_value,
 )
-from .smoothing import smooth_history_samples
+from .smoothing import (
+    SmoothedHistory,
+    smooth_history_samples,
+    smooth_history_segments,
+)
 from .rule import Rule
 
 __all__ = [
@@ -34,6 +38,7 @@ __all__ = [
     "LimitSideConfig",
     "PointConfig",
     "SmoothingConfig",
+    "SmoothedHistory",
     "Rule",
     "detect",
     "detect_analog_limit_exceedance",
@@ -43,5 +48,6 @@ __all__ = [
     "parse_analog_value",
     "parse_config",
     "smooth_history_samples",
+    "smooth_history_segments",
     "validate_config",
 ]

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 import pytest
@@ -103,6 +104,30 @@ def test_rule_reads_history_and_returns_low_event():
 
     assert event.data["event_type"] == "low_limit"
     assert event.message == "P 低限超限持续超过 5 分钟"
+
+
+def test_rule_quality_hole_closes_previous_segment_and_does_not_bridge_new_abnormal_run():
+    hole_time = START + timedelta(seconds=302)
+    history = [
+        sample(START - timedelta(seconds=60), 100),
+        sample(START, 121),
+        sample(START + timedelta(seconds=301), 121),
+        replace(
+            sample(hole_time, "not-a-number"),
+            is_history_hole=True,
+        ),
+        sample(START + timedelta(seconds=303), 121),
+        sample(START + timedelta(seconds=604), 100),
+    ]
+
+    events = Rule(
+        FakeDataClient({"TAG-P": history}),
+        config([point()]),
+    ).evaluate(START, END)
+
+    assert len(events) == 1
+    assert events[0].end_time == START + timedelta(seconds=301)
+    assert events[0].data["is_open"] is False
 
 
 def test_rule_respects_disabled_point():

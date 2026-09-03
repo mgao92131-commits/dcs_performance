@@ -25,7 +25,7 @@
   },
   "scoring": {
     "default_score_per_event": 1,
-    "by_point_event_type": {
+    "by_point": {
       "LICA-012019": {
         "rate_down": 1,
         "rate_up": 1

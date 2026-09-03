@@ -79,6 +79,7 @@ class Rule:
                             "point_id": point.id,
                             "history_tag": point.history_tag,
                             "event_type": "level_rate",
+                            "score_key": occurrence.direction,
                             "direction": occurrence.direction,
                             "rate_window_seconds": point.rate_window_seconds,
                             "rate_lower_limit": point.lower_rate,

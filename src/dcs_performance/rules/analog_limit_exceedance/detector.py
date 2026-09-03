@@ -182,6 +182,7 @@ class AnalogLimitExceedanceDetector:
         window_end: datetime | None = None,
         end_time: datetime | None = None,
         allow_initial_abnormal: bool = False,
+        close_at_boundary: datetime | None = None,
     ) -> list[LimitOccurrence]:
         """Return qualified occurrences from ordered or unordered samples.
 
@@ -193,6 +194,9 @@ class AnalogLimitExceedanceDetector:
         may explicitly set ``allow_initial_abnormal`` when it has created a
         semantic boundary (for example, a deliberately removed disturbance
         window) and can therefore treat that first observation as a new edge.
+        ``close_at_boundary`` closes an active run at a deliberate quality or
+        segment boundary instead of reporting it as open through the caller's
+        observation horizon.
         """
 
         if window_start is not None:
@@ -228,7 +232,16 @@ class AnalogLimitExceedanceDetector:
                 raise TypeError("observation_end must be a datetime value")
             if start_time is not None and observation_end <= start_time:
                 raise ValueError("observation_end must be after start_time")
+        if close_at_boundary is not None and not isinstance(close_at_boundary, datetime):
+            raise TypeError("close_at_boundary must be a datetime value")
         _validate_timezones(parsed, start_time, observation_end)
+        _validate_timezones(parsed, start_time, close_at_boundary)
+        if (
+            close_at_boundary is not None
+            and parsed
+            and close_at_boundary < parsed[-1][0].timestamp
+        ):
+            raise ValueError("close_at_boundary must not precede the last sample")
 
         if not parsed or start_time is None:
             return []
@@ -365,6 +378,8 @@ class AnalogLimitExceedanceDetector:
         if run is not None:
             if run.pending_recovery is not None:
                 _append_closed(occurrences, run, run.pending_recovery)
+            elif close_at_boundary is not None:
+                _append_closed(occurrences, run, close_at_boundary)
             else:
                 _append_open(occurrences, run, horizon)
 
@@ -395,6 +410,7 @@ def detect_limit_occurrences(
     window_end: datetime | None = None,
     end_time: datetime | None = None,
     allow_initial_abnormal: bool = False,
+    close_at_boundary: datetime | None = None,
 ) -> list[LimitOccurrence]:
     """Functional wrapper around :class:`AnalogLimitExceedanceDetector`."""
 
@@ -407,6 +423,7 @@ def detect_limit_occurrences(
         window_end=window_end,
         end_time=end_time,
         allow_initial_abnormal=allow_initial_abnormal,
+        close_at_boundary=close_at_boundary,
     )
 
 

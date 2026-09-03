@@ -61,6 +61,7 @@ def test_rule_queries_three_tags_and_emits_balance_event():
 
     assert len(events) == 1
     assert events[0].data["peak_difference"] == 16.0
+    assert events[0].data["score_key"] == "flow_high"
     assert set(client.calls) == {
         (LOGIC, START - timedelta(seconds=120), END + timedelta(seconds=320)),
         (SY116, START - timedelta(seconds=120), END + timedelta(seconds=320)),

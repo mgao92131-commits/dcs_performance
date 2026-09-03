@@ -87,3 +87,20 @@ def test_production_pump_flow_config_is_scorable():
         "default_score_per_event": 1,
         "by_event_type": {"low_flow": 1, "switch_timeout": 2},
     }
+
+
+def test_directional_rules_use_point_score_keys():
+    expected = {
+        "flow_balance_compliance": {
+            "SLURRY_FLOW_BALANCE": {"flow_low": 1, "flow_high": 1}
+        },
+        "level_rate_compliance": {
+            "LICA-012019": {"rate_down": 1, "rate_up": 1}
+        },
+    }
+
+    for rule_id, point_scores in expected.items():
+        loaded = RuleLoader(data_client=FakeDataClient()).load(rule_id)
+
+        assert loaded.config["scoring"]["by_point"] == point_scores
+        assert "by_point_event_type" not in loaded.config["scoring"]

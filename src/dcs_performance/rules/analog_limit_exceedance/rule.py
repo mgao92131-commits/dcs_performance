@@ -27,7 +27,7 @@ from dcs_performance.rules.analog_limit_exceedance.detector import (
     LimitEventType,
 )
 from dcs_performance.rules.analog_limit_exceedance.smoothing import (
-    smooth_history_samples,
+    smooth_history_segments,
 )
 
 
@@ -108,41 +108,50 @@ class Rule:
 
         events: list[AssessmentEvent] = []
         for point in enabled_points:
-            samples = smooth_history_samples(
+            smoothed_history = smooth_history_segments(
                 histories.get(point.history_tag, []),
                 point.smoothing,
             )
-            occurrences = self.detector.detect(
-                samples,
-                point,
-                start_time=start_time,
-                observation_end=query_end,
-            )
-            for occurrence in occurrences:
-                # Ownership is determined by the observed violation start,
-                # never by the eventual recovery time.
-                if not (start_time <= occurrence.start_time < end_time):
+            for segment_index, samples in enumerate(smoothed_history.segments):
+                if not samples:
                     continue
-
-                event_end = occurrence.end_time or query_end
-                if event_end <= occurrence.start_time:
-                    # The detector normally prevents this.  Keep the Rule
-                    # boundary safe if a custom detector is supplied later.
-                    continue
-                events.append(
-                    self._build_event(
-                        point,
-                        occurrence.event_type,
-                        occurrence.start_time,
-                        event_end,
-                        occurrence.end_time,
-                        occurrence.duration_seconds,
-                        occurrence.limit,
-                        occurrence.extreme_value,
-                        occurrence.extreme_time,
-                        occurrence.is_open,
-                    )
+                boundary_end = (
+                    samples[-1].timestamp
+                    if smoothed_history.terminated_by_boundary[segment_index]
+                    else None
                 )
+                occurrences = self.detector.detect(
+                    samples,
+                    point,
+                    start_time=start_time,
+                    observation_end=query_end,
+                    close_at_boundary=boundary_end,
+                )
+                for occurrence in occurrences:
+                    # Ownership is determined by the observed violation start,
+                    # never by the eventual recovery time.
+                    if not (start_time <= occurrence.start_time < end_time):
+                        continue
+
+                    event_end = occurrence.end_time or query_end
+                    if event_end <= occurrence.start_time:
+                        # The detector normally prevents this.  Keep the Rule
+                        # boundary safe if a custom detector is supplied later.
+                        continue
+                    events.append(
+                        self._build_event(
+                            point,
+                            occurrence.event_type,
+                            occurrence.start_time,
+                            event_end,
+                            occurrence.end_time,
+                            occurrence.duration_seconds,
+                            occurrence.limit,
+                            occurrence.extreme_value,
+                            occurrence.extreme_time,
+                            occurrence.is_open,
+                        )
+                    )
 
         events.sort(
             key=lambda event: (

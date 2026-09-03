@@ -85,6 +85,7 @@ class Rule:
                             "logic_tag": point.logic_tag,
                             "sy_tags": list(point.sy_tags),
                             "event_type": "flow_balance",
+                            "score_key": occurrence.direction,
                             "direction": occurrence.direction,
                             "low_limit": point.low_limit,
                             "high_limit": point.high_limit,
