@@ -61,3 +61,26 @@ def test_unflagged_malformed_value_is_a_quality_boundary_too():
 
     assert [[item.value for item in segment] for segment in prepared.segments] == [[1.0]]
     assert prepared.break_times == (START + timedelta(minutes=1),)
+
+
+def test_service_good_delta_v_status_is_usable():
+    prepared = prepare_numeric_history(
+        [
+            sample(
+                START,
+                1,
+                delta_v_status="DeltaV.Historian.Data.DeltaVStatus",
+            ),
+            sample(
+                START + timedelta(minutes=1),
+                3,
+                delta_v_status="DeltaV.Historian.Data.DeltaVStatus",
+            ),
+        ],
+        parse_value=float,
+        max_gap_seconds=60,
+    )
+
+    assert [[item.value for item in segment] for segment in prepared.segments] == [
+        [1.0, 3.0]
+    ]

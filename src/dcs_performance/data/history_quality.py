@@ -18,6 +18,10 @@ from .models import HistorySample
 
 
 GOOD_DELTA_V_STATUS = "Good"
+SERVICE_GOOD_DELTA_V_STATUS = "DeltaV.Historian.Data.DeltaVStatus"
+GOOD_DELTA_V_STATUSES = frozenset(
+    {GOOD_DELTA_V_STATUS, SERVICE_GOOD_DELTA_V_STATUS}
+)
 VALID_ARCHIVE_STATUS = "HistoryDataIsValid"
 
 ValueParser = Callable[[str], int | float]
@@ -45,7 +49,7 @@ def is_usable_history_sample(sample: HistorySample) -> bool:
     """Return whether a raw sample is eligible for numeric calculations."""
 
     return (
-        sample.delta_v_status == GOOD_DELTA_V_STATUS
+        sample.delta_v_status in GOOD_DELTA_V_STATUSES
         and sample.archive_status == VALID_ARCHIVE_STATUS
         and not sample.is_history_hole
         and not sample.is_cr_hole
