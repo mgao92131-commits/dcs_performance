@@ -11,7 +11,7 @@
       {
         "id": "LICA-012019",
         "history_tag": "LICA-012019/PID1/PV.CV",
-        "enabled": true,
+        "enabled": false,
         "quality": {
           "max_gap_seconds": 60
         },

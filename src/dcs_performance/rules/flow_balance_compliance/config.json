@@ -1,0 +1,38 @@
+{
+  "id": "flow_balance_compliance",
+  "name": "浆料进料量平衡考核",
+  "enabled": true,
+  "parameters": {
+    "points": [
+      {
+        "id": "SLURRY_FLOW_BALANCE",
+        "logic_tag": "LOGIC27/YK-TLFH/OUT1.CV",
+        "sy_tags": [
+          "SY-116/AI1/PV.CV",
+          "SY-216/AI1/PV.CV"
+        ],
+        "enabled": true,
+        "smoothing": {
+          "enabled": true,
+          "method": "trailing_mean",
+          "window_seconds": 60,
+          "min_samples": 1
+        },
+        "low_limit": -15.0,
+        "high_limit": 15.0,
+        "min_duration_seconds": 300,
+        "merge_gap_seconds": 20,
+        "max_gap_seconds": 60
+      }
+    ]
+  },
+  "scoring": {
+    "default_score_per_event": 1,
+    "by_point_event_type": {
+      "SLURRY_FLOW_BALANCE": {
+        "flow_low": 1,
+        "flow_high": 1
+      }
+    }
+  }
+}

@@ -14,6 +14,8 @@ def test_list_metadata_does_not_require_a_data_client():
         ("analog_limit_exceedance", True),
         ("analog_trend_stability", True),
         ("example_rule", True),
+        ("flow_balance_compliance", True),
+        ("level_rate_compliance", True),
         ("persistent_high_alarm", True),
         ("pump_flow_compliance", True),
     ]

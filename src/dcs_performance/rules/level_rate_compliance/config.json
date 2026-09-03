@@ -1,0 +1,35 @@
+{
+  "id": "level_rate_compliance",
+  "name": "酯化液位变化速率考核",
+  "enabled": true,
+  "parameters": {
+    "points": [
+      {
+        "id": "LICA-012019",
+        "history_tag": "LICA-012019/PID1/PV.CV",
+        "enabled": true,
+        "smoothing": {
+          "enabled": true,
+          "method": "trailing_mean",
+          "window_seconds": 60,
+          "min_samples": 30
+        },
+        "rate_window_seconds": 7200,
+        "lower_rate": -0.14,
+        "upper_rate": 0.14,
+        "persistence_seconds": 7200,
+        "max_gap_seconds": 60,
+        "merge_gap_seconds": 0
+      }
+    ]
+  },
+  "scoring": {
+    "default_score_per_event": 1,
+    "by_point_event_type": {
+      "LICA-012019": {
+        "rate_down": 1,
+        "rate_up": 1
+      }
+    }
+  }
+}
