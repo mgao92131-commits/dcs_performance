@@ -63,6 +63,19 @@
         "high": {"enabled": true, "limit": 43.0, "min_duration_seconds": 300, "merge_gap_seconds": 20}
       },
       {
+        "id": "LIC-117016",
+        "history_tag": "LIC-117016/PID1/PV.CV",
+        "enabled": true,
+        "smoothing": {
+          "enabled": true,
+          "method": "trailing_mean",
+          "window_seconds": 3600,
+          "min_samples": 30
+        },
+        "low": {"enabled": true, "limit": 38.5, "min_duration_seconds": 300, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 39.5, "min_duration_seconds": 300, "merge_gap_seconds": 20}
+      },
+      {
         "id": "LIC-217016",
         "history_tag": "LIC-217016/PID1/PV.CV",
         "enabled": true,
@@ -173,6 +186,7 @@
       },
       "LIC-013107": {"low_limit": 1, "high_limit": 1},
       "LIC-017149": {"low_limit": 1, "high_limit": 1},
+      "LIC-117016": {"low_limit": 1, "high_limit": 1},
       "LIC-217016": {"low_limit": 1, "high_limit": 1},
       "TIC-013060": {"low_limit": 1, "high_limit": 1},
       "LIC-013065": {"low_limit": 1, "high_limit": 1},

@@ -287,20 +287,24 @@ def test_rejects_invalid_smoothing_configuration(smoothing, message):
         parse_config(raw)
 
 
-def test_repository_config_contains_lic_217016_60_minute_band():
+def test_repository_config_contains_lic_117016_and_lic_217016_same_60_minute_band():
     config_path = (
         Path(__file__).resolve().parents[3]
         / "src/dcs_performance/rules/analog_limit_exceedance/config.json"
     )
     parsed = load_config(config_path)
-    point = next(item for item in parsed.points if item.id == "LIC-217016")
+    points = {
+        item.id: item for item in parsed.points if item.id in {"LIC-117016", "LIC-217016"}
+    }
 
-    assert point.history_tag == "LIC-217016/PID1/PV.CV"
-    assert point.smoothing.enabled is True
-    assert point.smoothing.method == "trailing_mean"
-    assert point.smoothing.window_seconds == 3600
-    assert point.smoothing.min_samples == 30
-    assert point.low.limit == 38.5
-    assert point.high.limit == 39.5
-    assert point.low.min_duration_seconds == 300
-    assert point.high.min_duration_seconds == 300
+    assert set(points) == {"LIC-117016", "LIC-217016"}
+    for point_id, point in points.items():
+        assert point.history_tag == f"{point_id}/PID1/PV.CV"
+        assert point.smoothing.enabled is True
+        assert point.smoothing.method == "trailing_mean"
+        assert point.smoothing.window_seconds == 3600
+        assert point.smoothing.min_samples == 30
+        assert point.low.limit == 38.5
+        assert point.high.limit == 39.5
+        assert point.low.min_duration_seconds == 300
+        assert point.high.min_duration_seconds == 300
