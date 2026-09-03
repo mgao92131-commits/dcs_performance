@@ -17,7 +17,7 @@ def test_parse_component_viscosity_config():
     parsed = parse_config(load_config())
 
     assert parsed.id == "component_viscosity_control"
-    assert parsed.enabled is False
+    assert parsed.enabled is True
     point = parsed.points[0]
     assert point.history_tag == "PI-2311001/AI1/PV.CV"
     assert point.aggregation.bucket_seconds == 60

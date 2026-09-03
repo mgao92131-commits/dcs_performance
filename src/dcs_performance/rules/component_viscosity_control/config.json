@@ -1,7 +1,7 @@
 {
   "id": "component_viscosity_control",
   "name": "组件粘度趋势控制",
-  "enabled": false,
+  "enabled": true,
   "assessment_window": {
     "start_offset_minutes": 0,
     "end_offset_minutes": 0

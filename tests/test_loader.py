@@ -13,7 +13,7 @@ def test_list_metadata_does_not_require_a_data_client():
     assert [(item.id, item.enabled) for item in metadata] == [
         ("analog_limit_exceedance", True),
         ("analog_trend_stability", True),
-        ("component_viscosity_control", False),
+        ("component_viscosity_control", True),
         ("example_rule", True),
         ("flow_balance_compliance", True),
         ("level_rate_compliance", True),
@@ -77,6 +77,15 @@ def test_loading_a_real_rule_still_requires_a_data_client():
 
     loaded = RuleLoader(data_client=FakeDataClient()).load("persistent_high_alarm")
     assert loaded.id == "persistent_high_alarm"
+
+
+def test_loading_a_rule_with_relative_imports():
+    loaded = RuleLoader(data_client=FakeDataClient()).load(
+        "component_viscosity_control"
+    )
+
+    assert loaded.id == "component_viscosity_control"
+    assert loaded.enabled is True
 
 
 def test_production_pump_flow_config_is_scorable():

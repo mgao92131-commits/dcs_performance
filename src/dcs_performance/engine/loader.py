@@ -6,6 +6,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from dcs_performance.core.rule import AssessmentRule
@@ -177,9 +178,20 @@ class RuleLoader:
 
         rule_path = rule_dir / "rule.py"
         digest = hashlib.sha1(str(rule_path.resolve()).encode("utf-8")).hexdigest()[:12]
-        module_name = f"dcs_performance_rule_{rule_dir.name}_{digest}"
+        package_name = f"dcs_performance_rule_{rule_dir.name}_{digest}"
+        module_name = f"{package_name}.rule"
+
+        # Load the rule as a child of a synthetic package so rule modules can
+        # use ordinary relative imports (for example ``from .config``) while
+        # still allowing callers to provide an arbitrary rules directory.
+        package = ModuleType(package_name)
+        package.__path__ = [str(rule_dir)]  # type: ignore[attr-defined]
+        package.__package__ = package_name
+        sys.modules[package_name] = package
+
         spec = importlib.util.spec_from_file_location(module_name, rule_path)
         if spec is None or spec.loader is None:
+            sys.modules.pop(package_name, None)
             raise RuleLoadError(f"could not create import spec for {rule_path}")
 
         module = importlib.util.module_from_spec(spec)
@@ -188,6 +200,7 @@ class RuleLoader:
             spec.loader.exec_module(module)
         except Exception as exc:
             sys.modules.pop(module_name, None)
+            sys.modules.pop(package_name, None)
             raise RuleLoadError(f"could not import {rule_path}") from exc
         return module
 
