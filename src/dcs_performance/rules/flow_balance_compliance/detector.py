@@ -7,9 +7,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from math import isfinite
 
+from dcs_performance.data.history_quality import (
+    NumericHistorySample,
+    PreparedHistory,
+    prepare_numeric_history,
+    trailing_mean_segments,
+)
 from dcs_performance.data.models import HistorySample
-from dcs_performance.rules.analog_limit_exceedance.config import SmoothingConfig as AnalogSmoothingConfig
-from dcs_performance.rules.analog_limit_exceedance.smoothing import smooth_history_samples
 
 from .config import PointConfig
 
@@ -60,41 +64,87 @@ def detect_flow_balance_events(
     observation_end: datetime | None = None,
 ) -> list[FlowBalanceOccurrence]:
     tags = (config.logic_tag, *config.sy_tags)
-    smoothed: dict[str, list[HistorySample]] = {}
+    prepared: dict[str, PreparedHistory] = {}
+    smoothed: dict[str, list[NumericHistorySample]] = {}
     for tag in tags:
         raw = histories.get(tag, [])
-        smoothed[tag] = smooth_history_samples(
+        prepared[tag] = prepare_numeric_history(
             raw,
-            AnalogSmoothingConfig(
-                enabled=config.smoothing.enabled,
-                method="trailing_mean",
+            parse_value=_parse_value,
+            max_gap_seconds=config.max_gap_seconds,
+        )
+        if config.smoothing.enabled:
+            smoothed[tag] = trailing_mean_segments(
+                prepared[tag].segments,
                 window_seconds=config.smoothing.window_seconds,
                 min_samples=config.smoothing.min_samples,
-            ),
-        )
+            )
+        else:
+            smoothed[tag] = [
+                sample
+                for segment in prepared[tag].segments
+                for sample in segment
+            ]
 
-    timeline = sorted({sample.timestamp for tag in tags for sample in smoothed[tag]})
+    timeline = sorted(
+        {
+            sample.timestamp
+            for tag in tags
+            for sample in smoothed[tag]
+        }
+        | {
+            timestamp
+            for tag in tags
+            for timestamp in prepared[tag].break_times
+        }
+    )
     if not timeline:
         return []
 
-    current: dict[str, tuple[datetime, float] | None] = {tag: None for tag in tags}
+    current: dict[str, NumericHistorySample | None] = {tag: None for tag in tags}
     pointers = {tag: 0 for tag in tags}
+    break_pointers = {tag: 0 for tag in tags}
     run: _Run | None = None
     previous_valid_time: datetime | None = None
     occurrences: list[FlowBalanceOccurrence] = []
 
     for timestamp in timeline:
+        quality_boundary = False
         for tag in tags:
+            breaks = prepared[tag].break_times
+            break_pointer = break_pointers[tag]
+            while break_pointer < len(breaks) and breaks[break_pointer] <= timestamp:
+                if current[tag] is not None:
+                    quality_boundary = True
+                current[tag] = None
+                break_pointer += 1
+            break_pointers[tag] = break_pointer
+
             values = smoothed[tag]
             pointer = pointers[tag]
             while pointer < len(values) and values[pointer].timestamp <= timestamp:
-                current[tag] = (values[pointer].timestamp, _parse_value(values[pointer].value))
+                if (
+                    current[tag] is not None
+                    and current[tag].segment_id != values[pointer].segment_id
+                ):
+                    quality_boundary = True
+                current[tag] = values[pointer]
                 pointer += 1
             pointers[tag] = pointer
 
+        if quality_boundary:
+            if run is not None:
+                close_time = run.pending_recovery or previous_valid_time
+                if close_time is not None:
+                    _append_occurrence(occurrences, run, close_time, config)
+                run = None
+            previous_valid_time = None
+
         if not _all_current_values_are_valid(current, timestamp, config.max_gap_seconds):
-            if run is not None and previous_valid_time is not None:
-                _append_occurrence(occurrences, run, previous_valid_time, config)
+            if run is not None:
+                close_time = run.pending_recovery or previous_valid_time
+                if close_time is not None:
+                    _append_occurrence(occurrences, run, close_time, config)
                 run = None
             previous_valid_time = None
             continue
@@ -104,11 +154,16 @@ def detect_flow_balance_events(
             and (timestamp - previous_valid_time).total_seconds() > config.max_gap_seconds
         ):
             if run is not None:
-                _append_occurrence(occurrences, run, previous_valid_time, config)
+                close_time = run.pending_recovery or previous_valid_time
+                if close_time is not None:
+                    _append_occurrence(occurrences, run, close_time, config)
                 run = None
 
-        logic_flow = current[config.logic_tag][1]  # type: ignore[index]
-        sy_total = sum(current[tag][1] for tag in config.sy_tags)  # type: ignore[index]
+        logic_flow = current[config.logic_tag].value  # type: ignore[union-attr]
+        sy_total = sum(
+            current[tag].value  # type: ignore[union-attr]
+            for tag in config.sy_tags
+        )
         point = FlowBalancePoint(timestamp, logic_flow, sy_total, logic_flow - sy_total)
         direction = _direction(point.difference, config)
         if direction is None:
@@ -207,16 +262,16 @@ def _direction(difference: float, config: PointConfig) -> str | None:
 
 
 def _all_current_values_are_valid(
-    current: Mapping[str, tuple[datetime, float] | None],
+    current: Mapping[str, NumericHistorySample | None],
     timestamp: datetime,
     max_gap_seconds: float,
 ) -> bool:
     for item in current.values():
         if item is None:
             return False
-        if (timestamp - item[0]).total_seconds() > max_gap_seconds:
+        if (timestamp - item.timestamp).total_seconds() > max_gap_seconds:
             return False
-        if not isfinite(item[1]):
+        if not isfinite(item.value):
             return False
     return True
 

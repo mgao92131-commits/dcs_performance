@@ -17,6 +17,17 @@ from .models import (
     ServiceInfo,
     TagInfo,
 )
+from .history_quality import (
+    GOOD_DELTA_V_STATUS,
+    VALID_ARCHIVE_STATUS,
+    NumericHistorySample,
+    PreparedHistory,
+    build_numeric_segments,
+    is_usable_history_sample,
+    prepare_numeric_history,
+    split_valid_numeric_segments,
+    trailing_mean_segments,
+)
 from .history_context import (
     DEFAULT_LOOKBACK_STEPS,
     DEFAULT_FORWARD_SEARCH_STEPS,
@@ -46,6 +57,10 @@ __all__ = [
     "DEFAULT_LOOKBACK_STEPS",
     "DEFAULT_RECOVERY_SEARCH_STEPS",
     "HistorySample",
+    "GOOD_DELTA_V_STATUS",
+    "VALID_ARCHIVE_STATUS",
+    "NumericHistorySample",
+    "PreparedHistory",
     "HistoryContext",
     "HttpResponse",
     "HttpStreamResponse",
@@ -54,4 +69,9 @@ __all__ = [
     "find_next_sample",
     "get_histories_with_previous_samples",
     "get_history_with_previous_sample",
+    "build_numeric_segments",
+    "is_usable_history_sample",
+    "prepare_numeric_history",
+    "split_valid_numeric_segments",
+    "trailing_mean_segments",
 ]

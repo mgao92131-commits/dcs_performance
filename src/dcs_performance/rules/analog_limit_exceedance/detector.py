@@ -181,6 +181,7 @@ class AnalogLimitExceedanceDetector:
         window_start: datetime | None = None,
         window_end: datetime | None = None,
         end_time: datetime | None = None,
+        allow_initial_abnormal: bool = False,
     ) -> list[LimitOccurrence]:
         """Return qualified occurrences from ordered or unordered samples.
 
@@ -188,7 +189,10 @@ class AnalogLimitExceedanceDetector:
         sample before it initializes the state, but a violation already active
         at that point cannot become a new occurrence for this window.  With no
         preceding sample, the first abnormal observation remains UNKNOWN until
-        a normal or opposite state establishes a real transition.
+        a normal or opposite state establishes a real transition.  A caller
+        may explicitly set ``allow_initial_abnormal`` when it has created a
+        semantic boundary (for example, a deliberately removed disturbance
+        window) and can therefore treat that first observation as a new edge.
         """
 
         if window_start is not None:
@@ -265,6 +269,16 @@ class AnalogLimitExceedanceDetector:
             if state is _State.UNKNOWN:
                 if new_state is _State.NORMAL:
                     state = _State.NORMAL
+                elif allow_initial_abnormal and run is None:
+                    state = new_state
+                    run = _Run.start(
+                        resolved_config.id,
+                        resolved_config.history_tag,
+                        event_type,
+                        side,
+                        sample.timestamp,
+                        value,
+                    )
                 else:
                     # No proven NORMAL -> violation edge exists yet.
                     state = new_state
@@ -380,6 +394,7 @@ def detect_limit_occurrences(
     window_start: datetime | None = None,
     window_end: datetime | None = None,
     end_time: datetime | None = None,
+    allow_initial_abnormal: bool = False,
 ) -> list[LimitOccurrence]:
     """Functional wrapper around :class:`AnalogLimitExceedanceDetector`."""
 
@@ -391,6 +406,7 @@ def detect_limit_occurrences(
         window_start=window_start,
         window_end=window_end,
         end_time=end_time,
+        allow_initial_abnormal=allow_initial_abnormal,
     )
 
 

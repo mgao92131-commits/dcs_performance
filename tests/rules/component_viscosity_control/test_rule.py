@@ -22,7 +22,6 @@ def config(*, exclusion_enabled=False):
                     "history_tag": "PI-2311001/AI1/PV.CV",
                     "enabled": True,
                     "aggregation": {
-                        "enabled": True,
                         "method": "median",
                         "bucket_seconds": 60,
                         "min_samples": 1,
@@ -101,3 +100,130 @@ def test_rule_does_not_use_disturbance_values_for_a_viscosity_event():
     events = rule.evaluate(START, END)
 
     assert all(event.data["event_type"] != "viscosity_high" for event in events)
+
+
+def test_rule_starts_low_event_at_first_metric_after_disturbance_window():
+    history = []
+    history_start = START - timedelta(hours=3)
+    disturbance_start = START + timedelta(minutes=30)
+    exclusion_end = disturbance_start + timedelta(hours=2)
+    low_end = exclusion_end + timedelta(minutes=20)
+
+    for index in range(0, 7 * 60):
+        timestamp = history_start + timedelta(minutes=index)
+        if timestamp == disturbance_start:
+            value = "16.75"
+        elif exclusion_end <= timestamp < low_end:
+            value = "15.85"
+        else:
+            value = "16.05"
+        history.append(make_history_sample(timestamp, value))
+
+    raw_config = config(exclusion_enabled=True)
+    raw_config["parameters"]["points"][0]["smoothing"]["enabled"] = False
+    raw_config["parameters"]["points"][0]["exclusion"].update(
+        {
+            "method": "robust_deviation",
+            "baseline": 16.075405,
+            "deviation_threshold": 0.285786,
+        }
+    )
+
+    events = Rule(
+        FakeDataClient({"PI-2311001/AI1/PV.CV": history}),
+        raw_config,
+    ).evaluate(START, END)
+
+    low_events = [
+        event for event in events if event.data["event_type"] == "viscosity_low"
+    ]
+    assert len(low_events) == 1
+    assert low_events[0].start_time == exclusion_end
+
+
+def test_rule_starts_at_delayed_first_metric_after_disturbance_window():
+    history = []
+    history_start = START - timedelta(hours=3)
+    disturbance_start = START + timedelta(minutes=30)
+    exclusion_end = disturbance_start + timedelta(hours=2)
+    first_clean = exclusion_end + timedelta(minutes=5)
+    low_end = first_clean + timedelta(minutes=20)
+
+    for index in range(0, 7 * 60):
+        timestamp = history_start + timedelta(minutes=index)
+        if timestamp == disturbance_start:
+            value = "16.75"
+        elif exclusion_end <= timestamp < first_clean:
+            continue
+        elif first_clean <= timestamp < low_end:
+            value = "15.85"
+        else:
+            value = "16.05"
+        history.append(make_history_sample(timestamp, value))
+
+    raw_config = config(exclusion_enabled=True)
+    raw_config["parameters"]["points"][0]["smoothing"]["enabled"] = False
+
+    events = Rule(
+        FakeDataClient({"PI-2311001/AI1/PV.CV": history}),
+        raw_config,
+    ).evaluate(START, END)
+
+    low_events = [
+        event for event in events if event.data["event_type"] == "viscosity_low"
+    ]
+    assert len(low_events) == 1
+    assert low_events[0].start_time == first_clean
+
+
+def test_rule_can_start_post_disturbance_event_across_shift_boundary():
+    history = []
+    history_start = START - timedelta(hours=3)
+    disturbance_start = START - timedelta(minutes=30)
+    exclusion_end = disturbance_start + timedelta(hours=2)
+    low_end = exclusion_end + timedelta(minutes=20)
+
+    for index in range(0, 7 * 60):
+        timestamp = history_start + timedelta(minutes=index)
+        if timestamp == disturbance_start:
+            value = "16.75"
+        elif exclusion_end <= timestamp < low_end:
+            value = "15.85"
+        else:
+            value = "16.05"
+        history.append(make_history_sample(timestamp, value))
+
+    raw_config = config(exclusion_enabled=True)
+    raw_config["parameters"]["points"][0]["smoothing"]["enabled"] = False
+
+    events = Rule(
+        FakeDataClient({"PI-2311001/AI1/PV.CV": history}),
+        raw_config,
+    ).evaluate(START, END)
+
+    low_events = [
+        event for event in events if event.data["event_type"] == "viscosity_low"
+    ]
+    assert len(low_events) == 1
+    assert low_events[0].start_time == exclusion_end
+    assert low_events[0].start_time >= START
+
+
+def test_rule_keeps_unknown_semantics_after_an_ordinary_data_gap():
+    history = []
+    for index in range(0, 35):
+        timestamp = START + timedelta(minutes=index)
+        if index == 1:
+            continue
+        value = "15.85" if 2 <= index < 22 else "16.05"
+        history.append(make_history_sample(timestamp, value))
+
+    raw_config = config()
+    raw_config["parameters"]["points"][0]["smoothing"]["enabled"] = False
+
+    events = Rule(
+        FakeDataClient({"PI-2311001/AI1/PV.CV": history}),
+        raw_config,
+    ).evaluate(START, END)
+
+    assert events == []

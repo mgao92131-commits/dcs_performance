@@ -29,6 +29,6 @@ A/B 组合执行一次状态迁移。因此同刻停泵和启泵会被识别为�
 规则不会把缺失值猜成停止或零流量。
 
 责任窗口和班组由公共 `AssessmentWindow`、`Shift` 与后续 assignment/scoring
-阶段处理；本规则不识别班组，也不包含 Engine 专用分支。`scoring` 目前留空，
-正式考核分值确定后可使用公共 Scorer 的 `by_event_type` 或
-`by_point_event_type` 配置。
+阶段处理；本规则不识别班组，也不包含 Engine 专用分支。当前正式配置使用公共
+Scorer 的 `default_score_per_event`，并将 `low_flow` 计 1 分、`switch_timeout`
+计 2 分。

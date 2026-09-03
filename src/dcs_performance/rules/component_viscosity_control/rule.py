@@ -23,7 +23,6 @@ from dcs_performance.rules.analog_limit_exceedance.detector import (
 from .config import (
     DEFAULT_RULE_ID,
     DEFAULT_RULE_NAME,
-    AssessmentConfig,
     ComponentViscosityControlConfig,
     PointConfig,
     parse_config,
@@ -123,11 +122,18 @@ class Rule:
                 segment_end = segment[-1].timestamp + timedelta(
                     seconds=point.aggregation.bucket_seconds
                 )
+                if segment_end <= start_time:
+                    continue
                 occurrences = self.detector.detect(
                     observations,
                     generic_point,
                     start_time=start_time,
                     observation_end=min(query_end, segment_end),
+                    allow_initial_abnormal=_segment_follows_exclusion(
+                        segment,
+                        clean_metric,
+                        exclusion_windows,
+                    ),
                 )
                 for occurrence in occurrences:
                     if not (start_time <= occurrence.start_time < end_time):
@@ -241,6 +247,35 @@ def _metric_history_samples(points: list[MetricPoint]) -> list[HistorySample]:
         )
         for point in points
     ]
+
+
+def _segment_follows_exclusion(
+    segment: list[MetricPoint],
+    clean_metric: list[MetricPoint],
+    exclusion_windows: list[DisturbanceWindow],
+) -> bool:
+    """Identify the clean segment immediately following a removed window.
+
+    A normal data gap must retain the generic detector's UNKNOWN-at-first-
+    observation behavior.  Only the first clean metric segment after an
+    intentional exclusion window gets the explicit re-initialisation
+    permission.  The first metric point may be delayed by smoothing or a
+    subsequent history gap, so this is intentionally not limited to one
+    bucket after ``remove_end``.
+    """
+
+    if not segment or not clean_metric or not exclusion_windows:
+        return False
+    first_timestamp = segment[0].timestamp
+    for window in exclusion_windows:
+        if window.remove_end > first_timestamp:
+            continue
+        if not any(
+            window.remove_end <= point.timestamp < first_timestamp
+            for point in clean_metric
+        ):
+            return True
+    return False
 
 
 def _build_event(

@@ -40,5 +40,11 @@
       }
     ]
   },
-  "scoring": {}
+  "scoring": {
+    "default_score_per_event": 1,
+    "by_event_type": {
+      "low_flow": 1,
+      "switch_timeout": 2
+    }
+  }
 }

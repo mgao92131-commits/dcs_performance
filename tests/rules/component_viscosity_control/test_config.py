@@ -21,6 +21,7 @@ def test_parse_component_viscosity_config():
     point = parsed.points[0]
     assert point.history_tag == "PI-2311001/AI1/PV.CV"
     assert point.aggregation.bucket_seconds == 60
+    assert not hasattr(point.aggregation, "enabled")
     assert point.smoothing.window_seconds == 600
     assert point.smoothing.min_samples == 10
     assert point.assessment.target == 16.05
@@ -32,6 +33,15 @@ def test_parse_component_viscosity_config():
     assert point.exclusion.window_seconds == 3600
     assert point.exclusion.range_threshold == 1.0
     assert point.exclusion.remove_after_start_seconds == 7200
+
+
+def test_legacy_aggregation_enabled_flag_is_not_a_pipeline_switch():
+    raw = load_config()
+    raw["parameters"]["points"][0]["aggregation"]["enabled"] = False
+
+    parsed = parse_config(raw)
+
+    assert not hasattr(parsed.points[0].aggregation, "enabled")
 
 
 @pytest.mark.parametrize(

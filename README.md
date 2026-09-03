@@ -111,7 +111,7 @@ print(shift.team_id, shift.shift_type, shift.start_time, shift.end_time)
 | `analog_trend_stability` | 连续量趋势稳定性考核 | 启用 | 趋势偏差和趋势漂移 |
 | `example_rule` | 示例考核规则 | 启用 | 空事件接口样例 |
 | `persistent_high_alarm` | 持续高报考核 | 启用 | 数字量持续高报 |
-| `pump_flow_compliance` | 泵组流量考核 | 停用 | 泵组低流量和切泵超时 |
+| `pump_flow_compliance` | 泵组流量考核 | 启用 | 泵组低流量和切泵超时 |
 
 ### 持续高报考核
 
@@ -162,10 +162,10 @@ LA-215077  LA-215177  LA-217075
 
 规则目录见
 [`pump_flow_compliance`](src/dcs_performance/rules/pump_flow_compliance/README.md)。
-当前配置为停用，包含 `117P01`、`115P05` 和 `115P03` 三个泵组。规则根据 A/B
+当前配置为启用，包含 `117P01`、`115P05` 和 `115P03` 三个泵组。规则根据 A/B
 泵状态重建正常运行或切泵状态，并检测动态最低流量和切泵超时；切泵超时严格使用
-`duration > max_switch_duration_seconds`。默认配置尚未设置正式评分，启用前应先
-补充 `scoring`。
+`duration > max_switch_duration_seconds`。默认评分为低流量事件 1 分、切泵超时事件
+2 分。
 
 ## 完整执行链路
 

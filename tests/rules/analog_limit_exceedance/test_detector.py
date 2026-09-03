@@ -360,6 +360,18 @@ def test_unknown_initial_low_does_not_invent_event_start():
     assert events == []
 
 
+def test_unknown_initial_low_can_start_at_an_explicit_semantic_boundary():
+    events = detect_limit_occurrences(
+        [sample(0, 79), sample(301, 79), sample(302, 100)],
+        point(),
+        start_time=BASE,
+        allow_initial_abnormal=True,
+    )
+
+    assert len(events) == 1
+    assert events[0].start_time == BASE
+
+
 def test_unknown_initial_state_can_use_a_later_normal_to_find_edge():
     events = detect(
         [sample(0, 121), sample(10, 100), sample(20, 121), sample(321, 100)],

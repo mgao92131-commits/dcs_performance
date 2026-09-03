@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from bisect import bisect_left
-from collections import deque
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from math import isfinite
 
+from dcs_performance.data.history_quality import (
+    NumericHistorySample,
+    prepare_numeric_history,
+    trailing_mean_segments,
+)
 from dcs_performance.data.models import HistorySample
 
 from .config import PointConfig, SmoothingConfig
@@ -62,9 +66,13 @@ def calculate_rate_points(
     samples: Iterable[HistorySample],
     config: PointConfig,
 ) -> list[RatePoint]:
-    ordered = _normalise_samples(samples)
     result: list[RatePoint] = []
-    for segment_id, segment in enumerate(_split_segments(ordered, config.max_gap_seconds)):
+    prepared = prepare_numeric_history(
+        samples,
+        parse_value=_parse_value,
+        max_gap_seconds=config.max_gap_seconds,
+    )
+    for segment_id, segment in enumerate(prepared.segments):
         smoothed = _smooth_segment(segment, config.smoothing)
         smoothed_times = [timestamp for timestamp, _ in smoothed]
         for index, (timestamp, value) in enumerate(smoothed):
@@ -105,7 +113,12 @@ def detect_rate_events(
             or (point.timestamp - previous.timestamp).total_seconds() > config.max_gap_seconds
         ):
             if run is not None:
-                _append_occurrence(occurrences, run, previous.timestamp, config)
+                _append_occurrence(
+                    occurrences,
+                    run,
+                    run.pending_recovery or previous.timestamp,
+                    config,
+                )
                 run = None
 
         direction = _direction(point.rate_per_hour, config)
@@ -209,26 +222,19 @@ def _direction(rate: float, config: PointConfig) -> str | None:
 
 
 def _smooth_segment(
-    samples: Sequence[HistorySample],
+    samples: Sequence[NumericHistorySample],
     config: SmoothingConfig,
 ) -> list[tuple[datetime, float]]:
     if not config.enabled:
-        return [(sample.timestamp, _parse_value(sample.value)) for sample in samples]
-    window: deque[tuple[datetime, float]] = deque()
-    running_sum = 0.0
-    result: list[tuple[datetime, float]] = []
-    horizon = timedelta(seconds=config.window_seconds)
-    for sample in samples:
-        value = _parse_value(sample.value)
-        window.append((sample.timestamp, value))
-        running_sum += value
-        cutoff = sample.timestamp - horizon
-        while window and window[0][0] < cutoff:
-            _, removed = window.popleft()
-            running_sum -= removed
-        if len(window) >= config.min_samples:
-            result.append((sample.timestamp, running_sum / len(window)))
-    return result
+        return [(sample.timestamp, sample.value) for sample in samples]
+    return [
+        (sample.timestamp, sample.value)
+        for sample in trailing_mean_segments(
+            (samples,),
+            window_seconds=config.window_seconds,
+            min_samples=config.min_samples,
+        )
+    ]
 
 
 def _interpolate(
@@ -252,30 +258,6 @@ def _interpolate(
         return left_value
     fraction = (target - left_time).total_seconds() / span
     return left_value + (right_value - left_value) * fraction
-
-
-def _split_segments(
-    samples: Sequence[HistorySample],
-    max_gap_seconds: float,
-) -> list[list[HistorySample]]:
-    if not samples:
-        return []
-    segments: list[list[HistorySample]] = [[samples[0]]]
-    for sample in samples[1:]:
-        gap = (sample.timestamp - segments[-1][-1].timestamp).total_seconds()
-        if gap > max_gap_seconds:
-            segments.append([])
-        segments[-1].append(sample)
-    return segments
-
-
-def _normalise_samples(samples: Iterable[HistorySample]) -> list[HistorySample]:
-    unique: dict[tuple[datetime, int], HistorySample] = {}
-    for sample in samples:
-        if not isinstance(sample, HistorySample):
-            raise TypeError("samples must contain HistorySample values")
-        unique.setdefault((sample.timestamp, sample.sequence_no), sample)
-    return sorted(unique.values(), key=lambda item: (item.timestamp, item.sequence_no))
 
 
 def _parse_value(value: str) -> float:

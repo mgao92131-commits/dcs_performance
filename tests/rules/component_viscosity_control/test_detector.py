@@ -14,18 +14,18 @@ from dcs_performance.rules.component_viscosity_control.detector import (
 START = datetime(2026, 9, 1, 8, 0)
 
 
-def sample(timestamp, value, sequence_no=1):
+def sample(timestamp, value, sequence_no=1, **quality):
     return HistorySample(
         timestamp=timestamp,
         value=str(value),
         data_type="Analog",
-        delta_v_status="Good",
-        archive_status="HistoryDataIsValid",
+        delta_v_status=quality.get("delta_v_status", "Good"),
+        archive_status=quality.get("archive_status", "HistoryDataIsValid"),
         sequence_no=sequence_no,
-        is_history_hole=False,
-        is_cr_hole=False,
-        is_manually_deleted=False,
-        is_manually_inserted=False,
+        is_history_hole=quality.get("is_history_hole", False),
+        is_cr_hole=quality.get("is_cr_hole", False),
+        is_manually_deleted=quality.get("is_manually_deleted", False),
+        is_manually_inserted=quality.get("is_manually_inserted", False),
     )
 
 
@@ -42,6 +42,23 @@ def test_aggregate_minute_medians_uses_one_median_per_bucket():
     assert values[0].timestamp == START
     assert values[0].value == 12
     assert values[0].sample_count == 3
+
+
+def test_quality_flags_exclude_bad_values_without_parsing_them():
+    values = aggregate_minute_medians(
+        [
+            sample(START + timedelta(seconds=1), 10),
+            sample(
+                START + timedelta(seconds=20),
+                "not-a-number",
+                is_history_hole=True,
+            ),
+            sample(START + timedelta(seconds=50), 14),
+        ]
+    )
+
+    assert [item.value for item in values] == [10, 14]
+    assert all(item.sample_count == 1 for item in values)
 
 
 def test_trailing_mean_requires_complete_consecutive_window():

@@ -13,7 +13,6 @@
         "history_tag": "PI-2311001/AI1/PV.CV",
         "enabled": true,
         "aggregation": {
-          "enabled": true,
           "method": "median",
           "bucket_seconds": 60,
           "min_samples": 1

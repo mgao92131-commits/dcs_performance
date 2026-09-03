@@ -20,9 +20,12 @@ SUPPORTED_EXCLUSION_METHODS = frozenset({"robust_deviation", "rolling_range"})
 
 @dataclass(frozen=True)
 class AggregationConfig:
-    """Fixed-time bucket aggregation applied before smoothing."""
+    """Fixed-time bucket aggregation applied before smoothing.
 
-    enabled: bool = True
+    One-minute median aggregation is part of this rule's algorithm.  It is
+    intentionally not switchable per configuration.
+    """
+
     method: str = "median"
     bucket_seconds: int = 60
     min_samples: int = 1
@@ -203,13 +206,14 @@ def _parse_aggregation(raw: object, prefix: str) -> AggregationConfig:
         raw = {}
     if not isinstance(raw, Mapping):
         raise ValueError(f"{prefix}.aggregation must be an object")
-    enabled = _boolean(raw.get("enabled", True), f"{prefix}.aggregation.enabled")
+    # ``aggregation.enabled`` used to be accepted but was never consulted by
+    # the calculation pipeline.  Leave old JSON readable while keeping the
+    # typed model honest: median aggregation is always applied.
     method = raw.get("method", "median")
     if not isinstance(method, str) or method not in SUPPORTED_AGGREGATIONS:
         allowed = ", ".join(sorted(SUPPORTED_AGGREGATIONS))
         raise ValueError(f"{prefix}.aggregation.method must be one of: {allowed}")
     return AggregationConfig(
-        enabled=enabled,
         method=method,
         bucket_seconds=_positive_int(
             raw.get("bucket_seconds", 60),

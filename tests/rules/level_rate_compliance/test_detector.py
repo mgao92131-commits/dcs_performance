@@ -59,6 +59,60 @@ def test_rate_gap_breaks_continuity():
     assert detect_rate_events(points, point()) == []
 
 
+def test_rate_gap_closes_at_pending_recovery_not_latest_normal_point():
+    points = [
+        RatePoint(START + timedelta(seconds=seconds), 72.0, rate, 0)
+        for seconds, rate in [
+            (0, -0.2),
+            (60, -0.2),
+            (120, -0.2),
+            (180, -0.2),
+            (240, 0.0),
+            (300, 0.0),
+        ]
+    ]
+    points.append(RatePoint(START + timedelta(seconds=420), 72.0, -0.2, 1))
+
+    # Make the stale-normal close land exactly on the persistence threshold;
+    # the actual abnormal interval ends one minute earlier.
+    assert detect_rate_events(points, point(persistence_seconds=300)) == []
+
+
+def test_quality_hole_with_non_numeric_level_value_is_a_boundary():
+    from dcs_performance.rules.level_rate_compliance.detector import calculate_rate_points
+
+    config = point(
+        smoothing=SmoothingConfig(enabled=False, window_seconds=60, min_samples=1),
+        rate_window_seconds=120,
+        max_gap_seconds=60,
+    )
+    samples = [
+        HistorySample(
+            timestamp=START + timedelta(seconds=seconds),
+            value=value,
+            data_type="Analog",
+            delta_v_status="Good",
+            archive_status="HistoryDataIsValid",
+            sequence_no=1,
+            is_history_hole=is_hole,
+            is_cr_hole=False,
+            is_manually_deleted=False,
+            is_manually_inserted=False,
+        )
+        for seconds, value, is_hole in [
+            (0, "100", False),
+            (60, "99", False),
+            (120, "98", False),
+            (180, "not-a-number", True),
+            (240, "96", False),
+        ]
+    ]
+
+    result = calculate_rate_points(samples, config)
+
+    assert [item.timestamp for item in result] == [START + timedelta(seconds=120)]
+
+
 def test_history_sample_shape_is_accepted_by_rate_calculation():
     sample = HistorySample(
         timestamp=START,

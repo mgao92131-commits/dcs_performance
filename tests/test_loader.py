@@ -77,3 +77,13 @@ def test_loading_a_real_rule_still_requires_a_data_client():
 
     loaded = RuleLoader(data_client=FakeDataClient()).load("persistent_high_alarm")
     assert loaded.id == "persistent_high_alarm"
+
+
+def test_production_pump_flow_config_is_scorable():
+    loaded = RuleLoader(data_client=FakeDataClient()).load("pump_flow_compliance")
+
+    assert loaded.config["enabled"] is True
+    assert loaded.config["scoring"] == {
+        "default_score_per_event": 1,
+        "by_event_type": {"low_flow": 1, "switch_timeout": 2},
+    }

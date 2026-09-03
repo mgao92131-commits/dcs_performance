@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from statistics import median
 
+from dcs_performance.data.history_quality import prepare_numeric_history
 from dcs_performance.data.models import HistorySample
 from dcs_performance.rules.analog_limit_exceedance.detector import (
     parse_analog_value,
@@ -23,6 +24,7 @@ class MinuteMedian:
     timestamp: datetime
     value: float
     sample_count: int
+    segment_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,7 @@ class MetricPoint:
 
     timestamp: datetime
     value: float
+    segment_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -56,23 +59,32 @@ def aggregate_minute_medians(
     if min_samples <= 0:
         raise ValueError("min_samples must be greater than zero")
 
-    buckets: dict[datetime, list[float]] = defaultdict(list)
-    seen: set[tuple[datetime, int]] = set()
-    for sample in samples:
-        if not isinstance(sample, HistorySample):
-            raise TypeError("history samples must contain HistorySample values")
-        identity = (sample.timestamp, sample.sequence_no)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        value = parse_analog_value(sample.value)
-        buckets[_bucket_start(sample.timestamp, bucket_seconds)].append(value)
-
-    return [
-        MinuteMedian(timestamp=timestamp, value=float(median(values)), sample_count=len(values))
-        for timestamp, values in sorted(buckets.items())
-        if len(values) >= min_samples
-    ]
+    prepared = prepare_numeric_history(
+        samples,
+        parse_value=parse_analog_value,
+        # The rule's fixed one-minute algorithm cannot bridge a raw-history
+        # gap longer than one bucket, even when a later sample lands in a
+        # different bucket.
+        max_gap_seconds=bucket_seconds,
+    )
+    result: list[MinuteMedian] = []
+    for segment_id, segment in enumerate(prepared.segments):
+        buckets: dict[datetime, list[float]] = defaultdict(list)
+        for sample in segment:
+            buckets[_bucket_start(sample.timestamp, bucket_seconds)].append(
+                sample.value
+            )
+        result.extend(
+            MinuteMedian(
+                timestamp=timestamp,
+                value=float(median(values)),
+                sample_count=len(values),
+                segment_id=segment_id,
+            )
+            for timestamp, values in sorted(buckets.items())
+            if len(values) >= min_samples
+        )
+    return sorted(result, key=lambda item: (item.timestamp, item.segment_id))
 
 
 def calculate_trailing_mean(
@@ -100,6 +112,11 @@ def calculate_trailing_mean(
         if len(window) < min_samples:
             continue
         if any(
+            getattr(current, "segment_id", 0) != getattr(previous, "segment_id", 0)
+            for previous, current in zip(window, window[1:])
+        ):
+            continue
+        if any(
             current.timestamp != previous.timestamp + bucket_delta
             for previous, current in zip(window, window[1:])
         ):
@@ -108,6 +125,7 @@ def calculate_trailing_mean(
             MetricPoint(
                 timestamp=window[-1].timestamp,
                 value=sum(item.value for item in window) / len(window),
+                segment_id=getattr(window[-1], "segment_id", 0),
             )
         )
     return result
@@ -130,7 +148,10 @@ def calculate_metric(
         min_samples=bucket_min_samples,
     )
     if not smoothing_enabled:
-        return [MetricPoint(item.timestamp, item.value) for item in minute_values]
+        return [
+            MetricPoint(item.timestamp, item.value, item.segment_id)
+            for item in minute_values
+        ]
     return calculate_trailing_mean(
         minute_values,
         bucket_seconds=bucket_seconds,
@@ -163,7 +184,11 @@ def detect_disturbance_windows(
     active_start: datetime | None = None
     previous: MetricPoint | None = None
     for point in ordered:
-        is_contiguous = previous is not None and point.timestamp == previous.timestamp + bucket_delta
+        is_contiguous = (
+            previous is not None
+            and point.segment_id == previous.segment_id
+            and point.timestamp == previous.timestamp + bucket_delta
+        )
         is_abnormal = abs(point.value - config.baseline) > config.deviation_threshold
         if is_abnormal and (active_start is None or not is_contiguous):
             if active_start is not None and previous is not None:
@@ -214,7 +239,8 @@ def _detect_rolling_range_windows(
     for index in range(window_buckets - 1, len(ordered)):
         window = ordered[index - window_buckets + 1 : index + 1]
         if any(
-            current.timestamp != previous.timestamp + bucket_delta
+            current.segment_id != previous.segment_id
+            or current.timestamp != previous.timestamp + bucket_delta
             for previous, current in zip(window, window[1:])
         ):
             continue
@@ -275,7 +301,10 @@ def split_contiguous_segments(
     bucket_delta = timedelta(seconds=bucket_seconds)
     segments: list[list[MetricPoint]] = [[ordered[0]]]
     for point in ordered[1:]:
-        if point.timestamp != segments[-1][-1].timestamp + bucket_delta:
+        if (
+            point.segment_id != segments[-1][-1].segment_id
+            or point.timestamp != segments[-1][-1].timestamp + bucket_delta
+        ):
             segments.append([])
         segments[-1].append(point)
     return segments
