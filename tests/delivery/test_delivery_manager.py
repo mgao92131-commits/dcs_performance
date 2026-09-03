@@ -282,6 +282,50 @@ def test_overwrite_is_explicit_and_failed_overwrite_preserves_old_package(tmp_pa
     assert not list(tmp_path.glob(".backup-*"))
 
 
+def test_interrupted_overwrite_restores_unique_backup_before_next_run(tmp_path, shift):
+    run_id = "20260903T080000_20260903T200000_A"
+    backup = tmp_path / f".backup-{run_id}-deadbeef"
+    backup.mkdir()
+    (backup / "result.json").write_bytes(b"previous-success")
+    stale_temporary = tmp_path / f".tmp-{run_id}-incomplete"
+    stale_temporary.mkdir()
+    (stale_temporary / "partial.png").write_bytes(b"incomplete")
+
+    config = _config("rule_a", [{"id": "POINT-1"}])
+    manager = _manager(
+        [LoadedRule(Rule("rule_a", []), config)],
+        {"rule_a": Visualizer()},
+    )
+
+    with pytest.raises(DeliveryError, match="already exists"):
+        manager.deliver(shift, tmp_path)
+
+    target = tmp_path / run_id
+    assert (target / "result.json").read_bytes() == b"previous-success"
+    assert not backup.exists()
+    assert not stale_temporary.exists()
+
+
+def test_interrupted_overwrite_with_multiple_backups_fails_without_guessing(tmp_path, shift):
+    run_id = "20260903T080000_20260903T200000_A"
+    backups = [tmp_path / f".backup-{run_id}-{suffix}" for suffix in ("one", "two")]
+    for backup in backups:
+        backup.mkdir()
+        (backup / "result.json").write_text(backup.name, encoding="utf-8")
+
+    config = _config("rule_a", [{"id": "POINT-1"}])
+    manager = _manager(
+        [LoadedRule(Rule("rule_a", []), config)],
+        {"rule_a": Visualizer()},
+    )
+
+    with pytest.raises(DeliveryError, match="multiple backups"):
+        manager.deliver(shift, tmp_path, overwrite=True)
+
+    assert not (tmp_path / run_id).exists()
+    assert all(backup.exists() for backup in backups)
+
+
 def test_data_service_exception_is_not_treated_as_no_data(tmp_path, shift):
     class BrokenClient(FakeDataClient):
         def get_history(self, *args):

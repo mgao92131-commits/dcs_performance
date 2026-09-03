@@ -131,6 +131,18 @@ def finish_figure(
                 fontsize=14,
                 color="#a33",
             )
+        elif data_status == "partial":
+            axis_list[0].text(
+                0.01,
+                0.98,
+                "Partial history data",
+                transform=axis_list[0].transAxes,
+                ha="left",
+                va="top",
+                fontsize=10,
+                color="#b35c00",
+                bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "#b35c00"},
+            )
         title = (
             f"{context.rule_name} | {context.point_id} | Team {context.shift.team_id}\n"
             f"Shift {context.shift.start_time.isoformat()} — {context.shift.end_time.isoformat()} | "

@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+from dcs_performance.data.history_context import get_histories_with_previous_samples
 from dcs_performance.data.history_quality import is_usable_history_sample
 from dcs_performance.rules.pump_flow_compliance.detector import parse_digital_state, parse_flow_value
 from dcs_performance.visualization.utils import close_figures_after, finish_figure, new_figure
@@ -35,11 +38,19 @@ class Visualizer:
                 label="Switching state (both running or both stopped)",
             )
         axes[1].set_ylabel("Pump state")
-        has_data = bool(flow_t or a_t or b_t)
+        series_by_tag = {
+            cfg["flow_tag"]: flow_t,
+            cfg["pump_a_tag"]: a_t,
+            cfg["pump_b_tag"]: b_t,
+        }
+        missing_tags = [tag for tag, times in series_by_tag.items() if not times]
+        populated = len(series_by_tag) - len(missing_tags)
+        data_status = "ok" if populated == 3 else "partial" if populated else "no_data"
         return finish_figure(
             fig, axes, context, output_path,
-            data_status="ok" if has_data else "no_data",
+            data_status=data_status,
             note=f"Max switch duration = {cfg['max_switch_duration_seconds']:g} s",
+            metadata={"missing_tags": missing_tags} if missing_tags else None,
         )
 
 
@@ -73,6 +84,3 @@ def _switch_series(a_times, a_values, b_times, b_values, running_value):
         times.append(timestamp)
         values.append(int((current_a == running_value) == (current_b == running_value)))
     return times, values
-from datetime import timedelta
-
-from dcs_performance.data.history_context import get_histories_with_previous_samples

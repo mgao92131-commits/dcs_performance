@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import hashlib
+import os
 import shutil
 import tempfile
 from collections.abc import Mapping
@@ -69,10 +69,11 @@ class DeliveryManager:
         output_root = Path(output_root)
         run_id = build_run_id(shift.start_time, shift.end_time, shift.team_id)
         target = output_root / run_id
+        output_root.mkdir(parents=True, exist_ok=True)
+        _recover_interrupted_delivery(output_root, run_id, target)
         if target.exists() and not overwrite:
             raise DeliveryError(f"result package already exists: {target}")
 
-        output_root.mkdir(parents=True, exist_ok=True)
         temporary = Path(tempfile.mkdtemp(prefix=f".tmp-{run_id}-", dir=output_root))
         backup: Path | None = None
         try:
@@ -266,7 +267,7 @@ def _enabled_points(
 
 def _validate_artifact(path: Path, artifact: Any, expected_image_path: str) -> None:
     data_status = getattr(artifact, "data_status", None)
-    if data_status not in {"ok", "no_data"}:
+    if data_status not in {"ok", "partial", "no_data"}:
         raise DeliveryError(f"visualizer returned unsupported data_status {data_status!r}")
     image_path = getattr(artifact, "image_path", None)
     if not isinstance(image_path, str) or image_path.replace("\\", "/") != expected_image_path:
@@ -295,3 +296,44 @@ def _deduplicate_filename(
         if candidate not in used or used[candidate] == identity:
             return candidate
     raise DeliveryError(f"could not create a unique image filename for {identity}")
+
+
+def _recover_interrupted_delivery(
+    output_root: Path,
+    run_id: str,
+    target: Path,
+) -> None:
+    """Recover the last successful package after an interrupted overwrite.
+
+    Publishing is single-writer per run ID. A temporary directory is never a
+    successful package, while a backup was moved from the formal target and is
+    safe to restore when it is the only candidate.
+    """
+
+    backups = sorted(output_root.glob(f".backup-{run_id}-*"))
+    temporaries = sorted(output_root.glob(f".tmp-{run_id}-*"))
+    invalid = [path for path in (*backups, *temporaries) if not path.is_dir()]
+    if invalid:
+        names = ", ".join(path.name for path in invalid)
+        raise DeliveryError(f"invalid Result Package recovery artifact(s): {names}")
+
+    if not target.exists():
+        if len(backups) > 1:
+            names = ", ".join(path.name for path in backups)
+            raise DeliveryError(
+                f"cannot recover Result Package {run_id}: multiple backups found: {names}"
+            )
+        if backups:
+            try:
+                os.replace(backups[0], target)
+            except OSError as exc:
+                raise DeliveryError(
+                    f"could not restore Result Package backup {backups[0]}"
+                ) from exc
+            backups = []
+
+    # With a formal target present, matching backups are from a completed
+    # replacement immediately before a crash. Temporaries were never
+    # published and can be discarded before starting the next attempt.
+    for stale in (*backups, *temporaries):
+        shutil.rmtree(stale, ignore_errors=True)

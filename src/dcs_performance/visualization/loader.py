@@ -25,12 +25,14 @@ class VisualizationLoader:
         digest = hashlib.sha1(str(path.resolve()).encode()).hexdigest()[:12]
         package_name = f"dcs_performance_visualizer_{rule_dir.name}_{digest}"
         module_name = f"{package_name}.visualization"
+        _remove_synthetic_modules(package_name)
         package = ModuleType(package_name)
         package.__path__ = [str(rule_dir)]  # type: ignore[attr-defined]
         package.__package__ = package_name
         sys.modules[package_name] = package
         spec = importlib.util.spec_from_file_location(module_name, path)
         if spec is None or spec.loader is None:
+            _remove_synthetic_modules(package_name)
             raise VisualizationLoadError(f"could not create import spec for {path}")
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
@@ -39,11 +41,19 @@ class VisualizationLoader:
             visualizer_class = getattr(module, "Visualizer")
             visualizer = visualizer_class()
         except Exception as exc:
+            _remove_synthetic_modules(package_name)
             raise VisualizationLoadError(
                 f"could not load visualizer for rule {rule_id!r}"
             ) from exc
         if not callable(getattr(visualizer, "render_point", None)):
+            _remove_synthetic_modules(package_name)
             raise VisualizationLoadError(
                 f"visualizer for rule {rule_id!r} must define render_point()"
             )
         return visualizer
+
+
+def _remove_synthetic_modules(package_name: str) -> None:
+    for name in tuple(sys.modules):
+        if name == package_name or name.startswith(f"{package_name}."):
+            sys.modules.pop(name, None)

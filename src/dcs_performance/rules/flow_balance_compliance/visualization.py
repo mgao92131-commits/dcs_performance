@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from dcs_performance.rules.flow_balance_compliance.config import parse_config
 from dcs_performance.rules.flow_balance_compliance.detector import calculate_flow_balance_points
 from dcs_performance.visualization.utils import close_figures_after, finish_figure, new_figure, numeric_series
@@ -29,6 +31,16 @@ class Visualizer:
         axes[1].axhline(cfg.low_limit, ls="--", color="#1f77b4", label="Low limit")
         axes[1].axhline(cfg.high_limit, ls="--", color="#d62728", label="High limit")
         axes[1].set_ylabel("Deviation")
-        has_data = any(times for times, _ in raw.values())
-        return finish_figure(fig, axes, context, output_path, data_status="ok" if has_data else "no_data")
-from datetime import timedelta
+        missing_tags = [tag for tag, (times, _) in raw.items() if not times]
+        populated = len(tags) - len(missing_tags)
+        data_status = (
+            "ok" if populated == len(tags) else "partial" if populated else "no_data"
+        )
+        return finish_figure(
+            fig,
+            axes,
+            context,
+            output_path,
+            data_status=data_status,
+            metadata={"missing_tags": missing_tags} if missing_tags else None,
+        )

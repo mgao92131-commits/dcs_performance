@@ -31,8 +31,9 @@ JSON 使用 UTF-8、`ensure_ascii=False`、`indent=2` 和 `allow_nan=False`。da
 保存 Historian 原始时间序列。事件 score 原样来自现有 `AssessmentScorer`。
 
 `status` 只由事件数量决定：有事件为 `violation`，否则为 `normal`。`data_status`
-目前支持 `ok` 和 `no_data`。无有效历史数据仍生成带 “No valid history data” 提示
-的 PNG；网络、协议或绘图异常则使整次交付失败。
+支持 `ok`、`partial` 和 `no_data`。多 TAG 考核点只有部分必需 TAG 包含有效数据时
+为 `partial`；无有效历史数据仍生成带 “No valid history data” 提示的 PNG。网络、
+协议或绘图异常则使整次交付失败。
 
 图片 X 轴固定为该规则的实际 assessment window，并在窗口超出正式班次时标记班次
 边界。平滑、速率、趋势与状态重建所需的前后文按对应规则的查询规划读取，因此
@@ -53,3 +54,7 @@ offset 的本地 ISO datetime；班次由现有生产排班配置和
 正式目录默认不覆盖。所有 PNG 先写入隐藏临时目录，全部成功后才严格序列化并
 原子写入 `result.json`，最后发布整个运行目录。覆盖模式也先完整生成新包再替换
 旧包；生成失败不会破坏旧的成功结果。
+
+同一个 `run_id` 只支持一个写入者。如果覆盖发布因进程崩溃或主机断电而中断，
+下一次同 `run_id` 运行会检查遗留的 `.backup-*` 和 `.tmp-*`。正式目录缺失且只有
+一个 backup 时自动恢复；存在多个 backup、无法唯一判断时明确失败，不猜测恢复。

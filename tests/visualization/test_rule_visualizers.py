@@ -72,3 +72,42 @@ def test_rule_visualizer_valid_data_smoke(rule_id, tmp_path):
     artifact = VisualizationLoader(rules_dir).load(rule_id).render_point(context, output)
     assert artifact.data_status == "ok"
     assert output.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+@pytest.mark.parametrize("rule_id", ("pump_flow_compliance", "flow_balance_compliance"))
+def test_multi_tag_visualizer_reports_partial_data(rule_id, tmp_path):
+    rules_dir = Path(__file__).resolve().parents[2] / "src" / "dcs_performance" / "rules"
+    config = json.loads((rules_dir / rule_id / "config.json").read_text(encoding="utf-8"))
+    point = config["parameters"]["points"][0]
+    start = datetime(2026, 9, 3, 8)
+    first_tag = point.get("flow_tag") or point["logic_tag"]
+    client = FakeDataClient({first_tag: [make_history_sample(start, "1")]})
+    shift = Shift("A", start, datetime(2026, 9, 3, 20), "day")
+    context = PointVisualizationContext(
+        rule_id=rule_id,
+        rule_name=config["name"],
+        point_id=point["id"],
+        point_config=point,
+        rule_config=config,
+        shift=shift,
+        window=TimeRange(shift.start_time, shift.end_time),
+        events=(),
+        data_client=client,
+    )
+
+    output = tmp_path / f"{rule_id}-partial.png"
+    artifact = VisualizationLoader(rules_dir).load(rule_id).render_point(context, output)
+
+    assert artifact.data_status == "partial"
+    assert set(artifact.metadata["missing_tags"]) == set(
+        tag
+        for tag in (
+            point.get("pump_a_tag"),
+            point.get("pump_b_tag"),
+            point.get("flow_tag"),
+            point.get("logic_tag"),
+            *point.get("sy_tags", []),
+        )
+        if tag is not None and tag != first_tag
+    )
+    assert output.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
