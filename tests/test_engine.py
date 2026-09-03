@@ -66,3 +66,9 @@ def test_engine_run_detailed_preserves_rule_shift_window_and_config():
 
     assert detailed == []
     assert isinstance(engine.runner.run_detailed(shift, loaded_rule), list)
+
+    executions = engine.run_executions(shift)
+    assert len(executions) == 1
+    assert executions[0].rule_id == "example_rule"
+    assert executions[0].events == ()
+    assert executions[0].window.start_time == datetime(2026, 8, 31, 8, 20)

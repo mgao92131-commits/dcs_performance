@@ -58,7 +58,8 @@ class Rule:
             raise ValueError("pump_flow_compliance parameters must be an object")
         self.points = _validate_points(parameters.get("points"))
         self.max_switch_duration_seconds = max(
-            point["max_switch_duration_seconds"] for point in self.points
+            (point["max_switch_duration_seconds"] for point in self.points),
+            default=0.0,
         )
         self.lookback = timedelta(seconds=self.max_switch_duration_seconds)
         self.detectors = tuple(
@@ -83,6 +84,8 @@ class Rule:
         """Evaluate the responsibility window using a bounded context tail."""
 
         _validate_range(start_time, end_time)
+        if not self.points:
+            return []
         analysis_start = start_time - self.lookback
         observation_end = end_time + self.lookback
         histories = get_histories_with_previous_samples(
@@ -146,7 +149,6 @@ def _validate_points(raw_points: object) -> tuple[dict[str, Any], ...]:
         raise ValueError("pump_flow_compliance parameters.points must not be empty")
 
     required_fields = (
-        "id",
         "pump_a_tag",
         "pump_b_tag",
         "flow_tag",
@@ -160,17 +162,21 @@ def _validate_points(raw_points: object) -> tuple[dict[str, Any], ...]:
     for index, raw_point in enumerate(raw_points):
         if not isinstance(raw_point, Mapping):
             raise ValueError(f"parameters.points[{index}] must be an object")
+        point_id = _required_text(raw_point, "id")
+        if point_id in point_ids:
+            raise ValueError(f"duplicate pump_flow_compliance point id: {point_id!r}")
+        point_ids.add(point_id)
+        enabled = raw_point.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError(f"parameters.points[{index}].enabled must be boolean")
+        if not enabled:
+            continue
         missing = [field for field in required_fields if field not in raw_point]
         if missing:
             raise ValueError(
                 f"parameters.points[{index}] missing required field(s): "
                 + ", ".join(missing)
             )
-
-        point_id = _required_text(raw_point, "id")
-        if point_id in point_ids:
-            raise ValueError(f"duplicate pump_flow_compliance point id: {point_id!r}")
-        point_ids.add(point_id)
 
         pump_a_tag = _required_text(raw_point, "pump_a_tag")
         pump_b_tag = _required_text(raw_point, "pump_b_tag")

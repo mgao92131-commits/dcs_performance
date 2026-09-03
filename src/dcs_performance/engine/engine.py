@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from dcs_performance.core.event import AssessmentEvent
-from dcs_performance.core.evaluation import EvaluatedAssessmentEvent
+from dcs_performance.core.evaluation import EvaluatedAssessmentEvent, RuleExecutionResult
 from dcs_performance.data.client import DcsDataClient
 from dcs_performance.shifts.model import Shift
 
@@ -49,6 +49,14 @@ class AssessmentEngine:
         for loaded_rule in self.loader.load_enabled():
             evaluated.extend(self.runner.run_detailed(shift, loaded_rule))
         return evaluated
+
+    def run_executions(self, shift: Shift) -> list[RuleExecutionResult]:
+        """Run enabled rules and retain every execution, including zero events."""
+
+        return [
+            self.runner.run_execution(shift, loaded_rule)
+            for loaded_rule in self.loader.load_enabled()
+        ]
 
     def evaluate(self, shift: Shift) -> list[AssessmentEvent]:
         """Alias for ``run`` to make the engine easy to call from a pipeline."""

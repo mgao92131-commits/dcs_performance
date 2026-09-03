@@ -297,3 +297,14 @@ dcs_performance/
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/rule-interface.md`](docs/rule-interface.md)
 - [`docs/shift-model.md`](docs/shift-model.md)
+- [`docs/result-package.md`](docs/result-package.md)
+
+## Result Package 生产运行
+
+```bash
+dcs-performance run --at 2026-09-03T13:00:00 --output ./output
+```
+
+命令使用现有生产排班配置解析包含 `--at` 的真实班次，执行所有启用规则，并原子
+发布 `result.json` 与每个启用 `(rule_id, point_id)` 的 PNG。零事件点同样进入 JSON
+并生成证据图。可用 `--service-url`、`--rules-dir` 与显式 `--overwrite` 调整运行。

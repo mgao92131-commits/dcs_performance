@@ -31,6 +31,15 @@ class FlowBalancePoint:
 
 
 @dataclass(frozen=True)
+class FlowBalanceTimelinePoint:
+    """One detector-ready timestamp, retaining explicit quality boundaries."""
+
+    timestamp: datetime
+    point: FlowBalancePoint | None
+    quality_boundary: bool
+
+
+@dataclass(frozen=True)
 class FlowBalanceOccurrence:
     start_time: datetime
     end_time: datetime
@@ -63,6 +72,99 @@ def detect_flow_balance_events(
     *,
     observation_end: datetime | None = None,
 ) -> list[FlowBalanceOccurrence]:
+    timeline = build_flow_balance_timeline(histories, config)
+    if not timeline:
+        return []
+
+    run: _Run | None = None
+    previous_valid_time: datetime | None = None
+    occurrences: list[FlowBalanceOccurrence] = []
+
+    for observation in timeline:
+        timestamp = observation.timestamp
+        if observation.quality_boundary:
+            if run is not None:
+                close_time = run.pending_recovery or previous_valid_time
+                if close_time is not None:
+                    _append_occurrence(occurrences, run, close_time, config)
+                run = None
+            previous_valid_time = None
+
+        point = observation.point
+        if point is None:
+            if run is not None:
+                close_time = run.pending_recovery or previous_valid_time
+                if close_time is not None:
+                    _append_occurrence(occurrences, run, close_time, config)
+                run = None
+            previous_valid_time = None
+            continue
+
+        if (
+            previous_valid_time is not None
+            and (timestamp - previous_valid_time).total_seconds() > config.max_gap_seconds
+        ):
+            if run is not None:
+                close_time = run.pending_recovery or previous_valid_time
+                if close_time is not None:
+                    _append_occurrence(occurrences, run, close_time, config)
+                run = None
+
+        direction = _direction(point.difference, config)
+        if direction is None:
+            if run is not None:
+                run.recover(timestamp)
+        elif run is None:
+            run = _Run.start(point, direction)
+        elif run.pending_recovery is not None:
+            gap = (timestamp - run.pending_recovery).total_seconds()
+            if direction == run.direction and gap <= config.merge_gap_seconds:
+                run.resume(point)
+            else:
+                _append_occurrence(occurrences, run, run.pending_recovery, config)
+                run = _Run.start(point, direction)
+        elif direction != run.direction:
+            _append_occurrence(occurrences, run, timestamp, config)
+            run = _Run.start(point, direction)
+        else:
+            run.add(point)
+        previous_valid_time = timestamp
+
+    if run is not None:
+        end_time = run.pending_recovery
+        is_open = end_time is None
+        if end_time is None:
+            last_valid_time = previous_valid_time or timeline[-1].timestamp
+            if observation_end is not None and (
+                observation_end - last_valid_time
+            ).total_seconds() <= config.max_gap_seconds:
+                end_time = observation_end
+            else:
+                end_time = last_valid_time
+                is_open = False
+        _append_occurrence(occurrences, run, end_time, config, is_open=is_open)
+    return occurrences
+
+
+def calculate_flow_balance_points(
+    histories: Mapping[str, Iterable[HistorySample]],
+    config: PointConfig,
+) -> list[FlowBalancePoint]:
+    """Return the exact calculated evidence series used by event detection."""
+
+    return [
+        observation.point
+        for observation in build_flow_balance_timeline(histories, config)
+        if observation.point is not None
+    ]
+
+
+def build_flow_balance_timeline(
+    histories: Mapping[str, Iterable[HistorySample]],
+    config: PointConfig,
+) -> list[FlowBalanceTimelinePoint]:
+    """Prepare and align all TAGs once for both detection and visualization."""
+
     tags = (config.logic_tag, *config.sy_tags)
     prepared: dict[str, PreparedHistory] = {}
     smoothed: dict[str, list[NumericHistorySample]] = {}
@@ -98,15 +200,10 @@ def detect_flow_balance_events(
             for timestamp in prepared[tag].break_times
         }
     )
-    if not timeline:
-        return []
-
     current: dict[str, NumericHistorySample | None] = {tag: None for tag in tags}
     pointers = {tag: 0 for tag in tags}
     break_pointers = {tag: 0 for tag in tags}
-    run: _Run | None = None
-    previous_valid_time: datetime | None = None
-    occurrences: list[FlowBalanceOccurrence] = []
+    result: list[FlowBalanceTimelinePoint] = []
 
     for timestamp in timeline:
         quality_boundary = False
@@ -132,32 +229,9 @@ def detect_flow_balance_events(
                 pointer += 1
             pointers[tag] = pointer
 
-        if quality_boundary:
-            if run is not None:
-                close_time = run.pending_recovery or previous_valid_time
-                if close_time is not None:
-                    _append_occurrence(occurrences, run, close_time, config)
-                run = None
-            previous_valid_time = None
-
         if not _all_current_values_are_valid(current, timestamp, config.max_gap_seconds):
-            if run is not None:
-                close_time = run.pending_recovery or previous_valid_time
-                if close_time is not None:
-                    _append_occurrence(occurrences, run, close_time, config)
-                run = None
-            previous_valid_time = None
+            result.append(FlowBalanceTimelinePoint(timestamp, None, quality_boundary))
             continue
-
-        if (
-            previous_valid_time is not None
-            and (timestamp - previous_valid_time).total_seconds() > config.max_gap_seconds
-        ):
-            if run is not None:
-                close_time = run.pending_recovery or previous_valid_time
-                if close_time is not None:
-                    _append_occurrence(occurrences, run, close_time, config)
-                run = None
 
         logic_flow = current[config.logic_tag].value  # type: ignore[union-attr]
         sy_total = sum(
@@ -165,40 +239,8 @@ def detect_flow_balance_events(
             for tag in config.sy_tags
         )
         point = FlowBalancePoint(timestamp, logic_flow, sy_total, logic_flow - sy_total)
-        direction = _direction(point.difference, config)
-        if direction is None:
-            if run is not None:
-                run.recover(timestamp)
-        elif run is None:
-            run = _Run.start(point, direction)
-        elif run.pending_recovery is not None:
-            gap = (timestamp - run.pending_recovery).total_seconds()
-            if direction == run.direction and gap <= config.merge_gap_seconds:
-                run.resume(point)
-            else:
-                _append_occurrence(occurrences, run, run.pending_recovery, config)
-                run = _Run.start(point, direction)
-        elif direction != run.direction:
-            _append_occurrence(occurrences, run, timestamp, config)
-            run = _Run.start(point, direction)
-        else:
-            run.add(point)
-        previous_valid_time = timestamp
-
-    if run is not None:
-        end_time = run.pending_recovery
-        is_open = end_time is None
-        if end_time is None:
-            last_valid_time = previous_valid_time or timeline[-1]
-            if observation_end is not None and (
-                observation_end - last_valid_time
-            ).total_seconds() <= config.max_gap_seconds:
-                end_time = observation_end
-            else:
-                end_time = last_valid_time
-                is_open = False
-        _append_occurrence(occurrences, run, end_time, config, is_open=is_open)
-    return occurrences
+        result.append(FlowBalanceTimelinePoint(timestamp, point, quality_boundary))
+    return result
 
 
 @dataclass

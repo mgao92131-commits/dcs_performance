@@ -51,6 +51,18 @@ def hs(tag_time, value, sequence_no=1):
     return make_history_sample(tag_time, value, sequence_no=sequence_no)
 
 
+def test_disabled_point_is_not_executed_and_needs_no_tags():
+    class NoAccessClient(FakeDataClient):
+        def get_histories(self, *args):
+            raise AssertionError("disabled point must not read history")
+
+    rule = Rule(
+        data_client=NoAccessClient(),
+        config=config(points=[{"id": "OFF", "enabled": False}]),
+    )
+    assert rule.evaluate(START, END) == []
+
+
 def test_rule_emits_low_flow_and_switch_timeout_for_one_point():
     client = FakeDataClient(
         {

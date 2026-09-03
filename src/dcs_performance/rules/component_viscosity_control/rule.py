@@ -90,7 +90,7 @@ class Rule:
             if not point.enabled:
                 continue
 
-            query_start, query_end = _query_range(point, start_time, end_time)
+            query_start, query_end = build_history_query_range(point, start_time, end_time)
             raw_samples = self._get_history(point.history_tag, query_start, query_end)
             metric = calculate_metric(
                 raw_samples,
@@ -188,7 +188,7 @@ class Rule:
         return result
 
 
-def _query_range(
+def build_history_query_range(
     point: PointConfig,
     start_time: datetime,
     end_time: datetime,
@@ -207,6 +207,10 @@ def _query_range(
         )
     ) + CONFIRMATION_MARGIN
     return start_time - left_padding, end_time + right_padding
+
+
+# Compatibility for any local experiments that used the former private name.
+_query_range = build_history_query_range
 
 
 def _generic_point_config(point: PointConfig) -> GenericPointConfig:

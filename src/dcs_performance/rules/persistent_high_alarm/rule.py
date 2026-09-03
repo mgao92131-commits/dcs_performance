@@ -94,6 +94,8 @@ class Rule:
         """Evaluate the responsibility range, with a forward confirmation tail."""
 
         _validate_range(start_time, end_time)
+        if not self.points:
+            return []
         query_end = end_time + timedelta(
             seconds=self.threshold_seconds
         ) + CONFIRMATION_MARGIN
@@ -190,10 +192,15 @@ def _validate_points(raw_points: object) -> tuple[dict[str, str], ...]:
         if not isinstance(raw_point, Mapping):
             raise ValueError(f"parameters.points[{index}] must be an object")
         point_id = _required_text(raw_point, "id")
-        history_tag = _required_text(raw_point, "history_tag")
         if point_id in point_ids:
             raise ValueError(f"duplicate persistent_high_alarm point id: {point_id!r}")
         point_ids.add(point_id)
+        enabled = raw_point.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError(f"parameters.points[{index}].enabled must be boolean")
+        if not enabled:
+            continue
+        history_tag = _required_text(raw_point, "history_tag")
         points.append({"id": point_id, "history_tag": history_tag})
     return tuple(points)
 

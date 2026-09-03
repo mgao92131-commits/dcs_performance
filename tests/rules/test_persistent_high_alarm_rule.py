@@ -42,6 +42,17 @@ def make_config(
     }
 
 
+def test_disabled_point_is_not_executed_and_needs_no_history_tag():
+    class NoAccessClient(FakeDataClient):
+        def get_history(self, *args):
+            raise AssertionError("disabled point must not read history")
+
+    raw = make_config(("ENABLED-SHAPE", "TAG"))
+    raw["parameters"]["points"] = [{"id": "OFF", "enabled": False}]
+    rule = Rule(data_client=NoAccessClient(), config=raw)
+    assert rule.evaluate(WINDOW_START, WINDOW_END) == []
+
+
 def test_rule_reads_history_and_emits_one_assessment_event():
     tag = "TAG-LA-115077"
     alarm_start = datetime(2026, 8, 31, 10, 12)

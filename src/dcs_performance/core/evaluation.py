@@ -20,3 +20,15 @@ class EvaluatedAssessmentEvent:
     window: TimeRange
     event: AssessmentEvent
     config: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class RuleExecutionResult:
+    """One rule execution, including the important zero-event case."""
+
+    rule_id: str
+    rule_name: str
+    shift: Shift
+    window: TimeRange
+    config: Mapping[str, Any]
+    events: tuple[EvaluatedAssessmentEvent, ...]

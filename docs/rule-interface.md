@@ -70,3 +70,17 @@ rules/<rule_id>/
 
 Loader 只要求目录包含 `rule.py` 和 `config.json`，并从 `rule.py` 中构造名为
 `Rule` 的类。规则代码可以直接测试，也可以由 Engine 统一调用。
+
+## 可选可视化扩展
+
+`rule.py` 与 `config.json` 仍是规则发现和执行的最低要求。拥有启用
+`parameters.points` 的规则在 Result Package 阶段还必须提供
+`rules/<rule_id>/visualization.py`。
+
+该模块暴露 `Visualizer.render_point(context, output_path)`。上下文提供规则、考核
+点配置、Shift、规则实际 assessment window、该 `(rule_id, point_id)` 已评分事件
+以及只读 `DcsDataClient`。
+
+可视化只解释结果，不参与 event detection。PNG 的事件区间必须来自上下文中的
+`AssignedAssessmentEvent`；visualizer 不得重新检测或创建事件。曲线、阈值、趋势、
+平滑和排除区间应复用 detector/config 中的纯函数。
