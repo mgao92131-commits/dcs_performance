@@ -87,3 +87,7 @@ def _local_datetime(value: str) -> datetime:
     if parsed.tzinfo is not None:
         raise argparse.ArgumentTypeError("--at must not include a timezone offset")
     return parsed
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

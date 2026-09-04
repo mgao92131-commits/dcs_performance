@@ -1,4 +1,7 @@
 import argparse
+import os
+import subprocess
+import sys
 import pytest
 
 from dcs_performance.cli import _local_datetime, main
@@ -75,3 +78,24 @@ def test_run_command_failure_is_nonzero(monkeypatch, capsys, tmp_path):
 def test_at_rejects_timezone_aware_datetime():
     with pytest.raises(argparse.ArgumentTypeError, match="timezone offset"):
         _local_datetime("2026-09-03T13:00:00+08:00")
+
+
+def test_module_invocation_runs_cli_entrypoint(tmp_path):
+    project_root = Path(__file__).resolve().parents[1]
+    source_root = project_root / "src"
+    env = os.environ.copy()
+    env["PYTHONPATH"] = (
+        str(source_root)
+        if not env.get("PYTHONPATH")
+        else f"{source_root}{os.pathsep}{env['PYTHONPATH']}"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-m", "dcs_performance.cli", "--help"],
+        cwd=project_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0
+    assert "usage: dcs-performance" in completed.stdout
