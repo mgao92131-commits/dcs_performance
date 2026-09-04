@@ -382,3 +382,20 @@ Each JSON point always contains the effective `assessment_window`, `status`, `da
 `partial_points`, and `no_data_points`; `assessment_complete` is true only when the latter
 two counts are zero. `status=normal` together with `data_status=no_data` does not mean the
 assessment was completed successfully.
+
+## Result Package 邮件通知
+
+邮件通知只读取已发布的 Result Package，不访问 DCS、Excel 或考核引擎。配置模板见
+`notification.config.example.json`；请复制为本机未跟踪的
+`notification.config.json`，SMTP 授权码通过 `DCS_SMTP_PASSWORD` 环境变量提供。
+
+```bash
+dcs-performance send-email --package ./assessment_reports/<run-id>
+dcs-performance send-email --package ./assessment_reports/<run-id> --preview
+dcs-performance send-email --package ./assessment_reports/<run-id> --resend
+```
+
+邮件只列出 `score > 0` 的考核点，时间使用省略秒数的短格式；扣分汇总后每个考核点
+只展示标题和对应 PNG（以 CID 内嵌到 HTML），无扣分班次也会发送通知。报表更新可
+追加 `python 报表/report.py update ... --send-email`，邮件只会在 Result Package 校验
+和 Excel 原子保存成功后发送。详见 [`docs/notification.md`](docs/notification.md)。

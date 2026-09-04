@@ -1,0 +1,18 @@
+{
+  "smtp": {
+    "host": "smtp.example.com",
+    "port": 465,
+    "security": "ssl",
+    "from": "dcs-notify@example.com",
+    "username": "dcs-notify@example.com",
+    "password_env": "DCS_SMTP_PASSWORD",
+    "timeout_seconds": 30
+  },
+  "teams": {
+    "A": ["control-a@example.com"],
+    "B": ["control-b@example.com"],
+    "C": ["control-c@example.com"]
+  },
+  "state_path": ".email-notification-state.json",
+  "subject_prefix": "DCS班次考核通知"
+}

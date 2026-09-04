@@ -12,6 +12,7 @@ echo 4. 设置免考
 echo 5. 强制重算指定班次
 echo 6. 同步规则
 echo 7. 新建月份
+echo 8. 快速更新上一个班并发送邮件
 echo 0. 退出
 echo.
 set /p choice=请选择：
@@ -23,6 +24,7 @@ if "%choice%"=="4" goto exempt
 if "%choice%"=="5" goto force
 if "%choice%"=="6" py -3 "报表\report.py" sync-rules
 if "%choice%"=="7" goto newmonth
+if "%choice%"=="8" py -3 "报表\report.py" update --last --send-email
 if "%choice%"=="0" exit /b 0
 goto done
 

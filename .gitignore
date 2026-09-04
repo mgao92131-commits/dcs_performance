@@ -31,3 +31,10 @@ htmlcov/
 .DS_Store
 Thumbs.db
 output/
+
+# Local notification settings may contain real recipient addresses.
+notification.config.json
+notification.config.local.json
+*.notification.config.json
+.email-notification-state.json
+*.email-notification-state.json

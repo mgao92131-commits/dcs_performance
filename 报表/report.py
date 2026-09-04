@@ -45,6 +45,14 @@ PROJECT_SRC = PROJECT_ROOT / "src"
 DEFAULT_RESULTS = PROJECT_ROOT / "assessment_reports"
 DEFAULT_RULES = PROJECT_SRC / "dcs_performance" / "rules"
 
+# report.py is also executed directly from the 报表 directory.  Make the
+# installed package available for the post-save notification hook without
+# changing the existing report helper imports.
+if str(PROJECT_SRC) not in sys.path:
+    sys.path.insert(0, str(PROJECT_SRC))
+
+from dcs_performance.notification import send_package_email
+
 
 def _default_report_path(today: dt.date | None = None) -> Path:
     """Select the formal report for the current month without using temp variants."""
@@ -305,6 +313,9 @@ def _write_result(
     *,
     force: bool,
     results_root: Path,
+    send_email: bool = False,
+    email_config: Path | None = None,
+    email_state: Path | None = None,
 ) -> str:
     wb, ws, _, mapping, columns, config, calendar = _column_context(report_path)
     shift = _shift_for_assignment(calendar, config, day, team_id)
@@ -358,6 +369,23 @@ def _write_result(
         penalty_count += 1
     ws.cell(3, col).value = "是"
     save_workbook_atomically(wb, report_path)
+    if send_email:
+        try:
+            notification = send_package_email(
+                result_json.parent,
+                config_path=email_config,
+                state_path=email_state,
+            )
+        except Exception as exc:
+            # The Result Package and Excel file are already durable at this
+            # point.  Keep them and return a distinct failure status so the
+            # caller can retry with dcs-performance send-email --resend.
+            print(
+                f"邮件发送失败（Excel 和 Result Package 已保存，可稍后单独补发）: {exc}",
+                file=sys.stderr,
+            )
+            return "email_failed"
+        print(f"邮件通知已处理: {notification.status}，收件人 {', '.join(notification.recipients)}")
     print(f"已更新 {day.isoformat()} {TEAM_LABELS[team_id]}班：写入 {penalty_count} 项扣分，其余保持空白。")
     return "updated"
 
@@ -388,15 +416,30 @@ def update_command(args: argparse.Namespace) -> int:
             print("已取消。")
             return 0
 
-    updated = skipped = 0
+    updated = skipped = email_failed = 0
     for day, team_id in assignments:
-        result = _write_result(report, day, team_id, force=args.force, results_root=args.results.resolve())
+        result = _write_result(
+            report,
+            day,
+            team_id,
+            force=args.force,
+            results_root=args.results.resolve(),
+            send_email=args.send_email,
+            email_config=args.email_config.resolve() if args.email_config else None,
+            email_state=args.email_state.resolve() if args.email_state else None,
+        )
         if result == "updated":
             updated += 1
+        elif result == "email_failed":
+            updated += 1
+            email_failed += 1
         else:
             skipped += 1
-    print(f"处理完成：更新 {updated} 个班次，跳过 {skipped} 个班次。")
-    return 0
+    print(
+        f"处理完成：更新 {updated} 个班次，跳过 {skipped} 个班次。"
+        + (f"邮件发送失败 {email_failed} 个班次。" if email_failed else "")
+    )
+    return 1 if email_failed else 0
 
 
 def exempt_command(args: argparse.Namespace) -> int:
@@ -737,6 +780,13 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument("--force", action="store_true", help="备份后强制重算，免考仍不覆盖")
     update.add_argument("--yes", action="store_true", help="跳过强制重算确认提示")
     update.add_argument("--results", type=Path, default=DEFAULT_RESULTS, help="原始考核结果目录")
+    update.add_argument(
+        "--send-email",
+        action="store_true",
+        help="Excel 原子保存成功后，从本次 Result Package 发送班次通知",
+    )
+    update.add_argument("--email-config", type=Path, default=None, help="邮件配置 JSON")
+    update.add_argument("--email-state", type=Path, default=None, help="邮件发送状态 JSON")
     update.set_defaults(func=update_command)
 
     exempt = subparsers.add_parser("exempt", help="设置某班次免考")

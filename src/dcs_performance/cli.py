@@ -9,6 +9,7 @@ from typing import Sequence
 from .data.dcs_service import DcsServiceClient
 from .delivery.manager import DeliveryManager
 from .engine.loader import RuleLoader
+from .notification import NotificationConfigError, NotificationSendError, send_package_email
 from .shifts import Cyclic12HourShiftCalendar, load_performance_schedule_config
 
 
@@ -32,6 +33,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_parser.add_argument("--rules-dir", type=Path, default=argparse.SUPPRESS)
     run_parser.add_argument("--service-url", default=None)
     run_parser.add_argument("--overwrite", action="store_true")
+    email_parser = subparsers.add_parser(
+        "send-email",
+        help="send a notification from one published Result Package",
+    )
+    email_parser.add_argument(
+        "--package",
+        "--result-package",
+        "--result-json",
+        "--result",
+        required=True,
+        type=Path,
+        help="Result Package directory or its result.json",
+    )
+    email_parser.add_argument("--config", type=Path, default=None)
+    email_parser.add_argument("--state", type=Path, default=None)
+    email_parser.add_argument("--dry-run", action="store_true")
+    email_parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="render and print both email alternatives without sending",
+    )
+    email_parser.add_argument(
+        "--resend",
+        action="store_true",
+        help="send even when this run_id was already sent",
+    )
     args = parser.parse_args(argv)
 
     if args.list_rules:
@@ -73,6 +100,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"Result:\n  {delivery.result_json_path}\n\n"
             f"Images:\n  {delivery.images_path}"
         )
+        return 0
+
+    if args.command == "send-email":
+        try:
+            result = send_package_email(
+                args.package,
+                config_path=args.config,
+                state_path=args.state,
+                dry_run=args.dry_run,
+                preview=args.preview,
+                resend=args.resend,
+            )
+        except (NotificationConfigError, NotificationSendError, OSError, ValueError) as exc:
+            print(f"Email notification failed: {exc}", file=sys.stderr)
+            return 1
+        print(
+            f"Email notification {result.status}: {result.run_id}\n"
+            f"Recipients: {', '.join(result.recipients)}\n"
+            f"Subject: {result.subject}\n"
+            f"State: {result.state_path}"
+        )
+        if args.preview and result.rendered is not None:
+            print("\n--- plain text preview ---\n")
+            print(result.rendered.text)
+            print("\n--- HTML preview ---\n")
+            print(result.rendered.html)
         return 0
 
     parser.print_help()

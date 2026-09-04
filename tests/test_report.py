@@ -318,3 +318,85 @@ def test_previous_completed_shift_uses_previous_slot_at_boundaries():
     previous = report._previous_completed_shift(calendar, at_boundary)
     assert previous.end_time == at_boundary
     assert report.report_date_for_shift(previous) == date(2026, 9, 4)
+
+
+def test_update_send_email_runs_only_after_atomic_excel_save(tmp_path, monkeypatch):
+    output = _copy_report(tmp_path)
+    results_root = tmp_path / "results"
+    events: list[str] = []
+
+    def fake_run(shift, root, overwrite):
+        return _fake_result_writer(output, root, date(2026, 9, 6), shift.team_id)
+
+    original_save = report.save_workbook_atomically
+
+    def save_and_record(wb, path):
+        events.append("excel-save")
+        return original_save(wb, path)
+
+    def fake_send(package, **kwargs):
+        events.append("email-send")
+        assert Path(package).name == "20260905T200000_20260906T080000_A"
+        return SimpleNamespace(status="sent", recipients=("a@example.com",))
+
+    monkeypatch.setattr(report, "_run_assessment", fake_run)
+    monkeypatch.setattr(report, "save_workbook_atomically", save_and_record)
+    monkeypatch.setattr(report, "send_package_email", fake_send)
+    assert report.main(
+        [
+            "--excel",
+            str(output),
+            "update",
+            "--date",
+            "2026-09-06",
+            "--team",
+            "甲",
+            "--results",
+            str(results_root),
+            "--send-email",
+            "--email-config",
+            str(tmp_path / "notification.json"),
+        ]
+    ) == 0
+    assert events == ["excel-save", "email-send"]
+    assert (results_root / "20260905T200000_20260906T080000_A" / "result.json").is_file()
+
+
+def test_update_email_failure_returns_nonzero_without_rollback(tmp_path, monkeypatch, capsys):
+    output = _copy_report(tmp_path)
+    results_root = tmp_path / "results"
+
+    def fake_run(shift, root, overwrite):
+        return _fake_result_writer(output, root, date(2026, 9, 6), shift.team_id)
+
+    monkeypatch.setattr(report, "_run_assessment", fake_run)
+
+    def broken_send(*args, **kwargs):
+        raise RuntimeError("SMTP down")
+
+    monkeypatch.setattr(report, "send_package_email", broken_send)
+    assert report.main(
+        [
+            "--excel",
+            str(output),
+            "update",
+            "--date",
+            "2026-09-06",
+            "--team",
+            "甲",
+            "--results",
+            str(results_root),
+            "--send-email",
+        ]
+    ) == 1
+    captured = capsys.readouterr()
+    assert "邮件发送失败" in captured.err
+    assert "可稍后单独补发" in captured.err
+    assert (results_root / "20260905T200000_20260906T080000_A" / "result.json").is_file()
+    ws = openpyxl.load_workbook(output, data_only=False)["中控"]
+    column = next(
+        col
+        for day, team, col in report.build_column_entries(ws)
+        if day == "2026-09-06" and team == "A"
+    )
+    assert ws.cell(3, column).value == "是"
