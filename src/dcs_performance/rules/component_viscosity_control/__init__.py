@@ -6,6 +6,7 @@ from .config import (
     ComponentViscosityControlConfig,
     ExclusionConfig,
     PointConfig,
+    RepeatPenaltyConfig,
     SmoothingConfig,
     load_config,
     parse_config,
@@ -23,6 +24,7 @@ from .detector import (
     split_contiguous_segments,
 )
 from .rule import Rule
+from .scoring import calculate_penalty_checkpoints, calculate_penalty_units
 
 __all__ = [
     "AssessmentConfig",
@@ -33,10 +35,13 @@ __all__ = [
     "MetricPoint",
     "MinuteMedian",
     "PointConfig",
+    "RepeatPenaltyConfig",
     "Rule",
     "SmoothingConfig",
     "aggregate_minute_medians",
     "calculate_metric",
+    "calculate_penalty_checkpoints",
+    "calculate_penalty_units",
     "calculate_trailing_mean",
     "detect_disturbance_windows",
     "exclude_disturbances",

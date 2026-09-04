@@ -5,6 +5,7 @@ from pathlib import Path
 from dcs_performance.delivery.manager import DeliveryManager
 from dcs_performance.engine.loader import LoadedRule
 from dcs_performance.rules.analog_limit_exceedance.rule import Rule as AnalogRule
+from dcs_performance.rules.component_viscosity_control.rule import Rule as ViscosityRule
 from dcs_performance.rules.persistent_high_alarm.rule import Rule as AlarmRule
 from dcs_performance.rules.pump_flow_compliance.rule import Rule as PumpRule
 from dcs_performance.shifts.model import Shift
@@ -134,6 +135,69 @@ def test_analog_violation_flows_from_real_detector_to_json_and_png(tmp_path):
     _assert_positive_result(
         result, document, contexts, "high_limit", 2.0, event_start, event_end
     )
+
+
+def test_viscosity_repeated_penalties_flow_to_json_score_and_visual_metadata(tmp_path):
+    tag = "VISCOSITY"
+    event_start = SHIFT.start_time + timedelta(hours=1)
+    event_end = event_start + timedelta(hours=2)
+    config = {
+        "id": "component_viscosity_control",
+        "name": "Component viscosity",
+        "enabled": True,
+        "assessment_window": {"start_offset_minutes": 0, "end_offset_minutes": 0},
+        "parameters": {
+            "points": [{
+                "id": "PI-2311001",
+                "history_tag": tag,
+                "aggregation": {"method": "median", "bucket_seconds": 60, "min_samples": 1},
+                "smoothing": {"enabled": False, "method": "trailing_mean", "window_seconds": 600, "min_samples": 10},
+                "assessment": {
+                    "target": 16.05,
+                    "low_limit": 15.95,
+                    "high_limit": 16.25,
+                    "min_duration_seconds": 600,
+                    "merge_gap_seconds": 600,
+                    "repeat_penalty": {
+                        "enabled": True,
+                        "interval_seconds": 1800,
+                        "max_units": None,
+                    },
+                },
+                "exclusion": {"enabled": False},
+            }]
+        },
+        "scoring": {
+            "by_point": {
+                "PI-2311001": {"viscosity_low": 2, "viscosity_high": 2}
+            }
+        },
+    }
+    history = [
+        _sample(SHIFT.start_time - timedelta(minutes=1), 16.05),
+        *(_sample(SHIFT.start_time + timedelta(minutes=index), 16.05)
+          for index in range(1, 60)),
+        *(_sample(event_start + timedelta(minutes=index), 15.85)
+          for index in range(120)),
+        _sample(event_end, 16.05),
+    ]
+
+    result, document, contexts = _deliver(
+        tmp_path,
+        ViscosityRule,
+        config,
+        {tag: history},
+    )
+
+    _assert_positive_result(
+        result, document, contexts, "viscosity_low", 8.0, event_start, event_end
+    )
+    point = document["rules"][0]["points"][0]
+    assert point["events"][0]["data"]["penalty"]["units"] == 4
+    assert point["events"][0]["data"]["score_multiplier"] == 4
+    assert point["events"][0]["data"]["base_score"] == 2
+    assert point["metadata"]["penalty_unit_count"] == 4
+    assert point["metadata"]["penalty_checkpoint_count"] == 4
 
 
 def test_persistent_alarm_flows_from_real_detector_to_json_and_png(tmp_path):

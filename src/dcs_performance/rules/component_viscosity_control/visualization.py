@@ -1,3 +1,7 @@
+from collections.abc import Mapping
+from datetime import datetime
+from math import isfinite
+
 from dcs_performance.rules.component_viscosity_control.config import parse_config
 from dcs_performance.rules.component_viscosity_control.rule import build_history_query_range
 from dcs_performance.rules.component_viscosity_control.detector import (
@@ -64,9 +68,69 @@ class Visualizer:
         ax.axhline(point.assessment.high_limit, color="#d62728", ls="--", label="High limit")
         for index, window in enumerate(exclusions):
             ax.axvspan(window.remove_start, window.remove_end, color="#777", alpha=0.16, hatch="//", label="Excluded / unstable section" if index == 0 else None)
+        penalty_units, checkpoint_count = _draw_penalty_checkpoints(ax, context)
         ax.set_ylabel("Value")
         return finish_figure(
             fig, axes, context, output_path,
             data_status="ok" if raw_t else "no_data",
-            metadata={"exclusion_window_count": len(exclusions)},
+            note=f"Penalties {penalty_units:g}",
+            metadata={
+                "exclusion_window_count": len(exclusions),
+                "penalty_unit_count": penalty_units,
+                "penalty_checkpoint_count": checkpoint_count,
+            },
         )
+
+
+def _draw_penalty_checkpoints(ax, context) -> tuple[int, int]:
+    """Draw light checkpoint markers without splitting event spans."""
+
+    total_units = 0
+    checkpoint_count = 0
+    labels: set[str] = set()
+    for event in context.events:
+        penalty = event.data.get("penalty")
+        if not isinstance(penalty, Mapping):
+            continue
+
+        units = penalty.get("units")
+        if (
+            isinstance(units, (int, float))
+            and not isinstance(units, bool)
+            and isfinite(float(units))
+            and units >= 0
+            and float(units).is_integer()
+        ):
+            total_units += int(units)
+
+        checkpoints = penalty.get("checkpoints", ())
+        if not isinstance(checkpoints, (list, tuple)):
+            continue
+        for raw_checkpoint in checkpoints:
+            checkpoint = _checkpoint_datetime(raw_checkpoint)
+            if checkpoint is None:
+                continue
+            label = "Penalty checkpoint"
+            ax.axvline(
+                checkpoint,
+                color="#6b7280",
+                ls=":",
+                lw=0.8,
+                alpha=0.58,
+                label=label if label not in labels else None,
+            )
+            labels.add(label)
+            checkpoint_count += 1
+
+    return total_units, checkpoint_count
+
+
+def _checkpoint_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None

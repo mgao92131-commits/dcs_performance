@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 from pathlib import Path
 from types import MappingProxyType
@@ -42,6 +42,20 @@ class SmoothingConfig:
 
 
 @dataclass(frozen=True)
+class RepeatPenaltyConfig:
+    """Optional repeated penalty policy for one continuous abnormal event.
+
+    ``max_units`` counts the initial unit as well as all repeated units.  A
+    missing ``repeat_penalty`` block is intentionally equivalent to disabled
+    repeated penalties so old rule configurations keep their former score.
+    """
+
+    enabled: bool = False
+    interval_seconds: int | None = None
+    max_units: int | None = None
+
+
+@dataclass(frozen=True)
 class AssessmentConfig:
     """Target, limits, persistence and recovery-gap settings."""
 
@@ -50,6 +64,7 @@ class AssessmentConfig:
     high_limit: float
     min_duration_seconds: float
     merge_gap_seconds: float
+    repeat_penalty: RepeatPenaltyConfig = field(default_factory=RepeatPenaltyConfig)
 
 
 @dataclass(frozen=True)
@@ -272,6 +287,51 @@ def _parse_assessment(raw: object, prefix: str) -> AssessmentConfig:
             raw.get("merge_gap_seconds", 600),
             f"{prefix}.assessment.merge_gap_seconds",
         ),
+        repeat_penalty=_parse_repeat_penalty(
+            raw.get("repeat_penalty"),
+            f"{prefix}.assessment",
+        ),
+    )
+
+
+def _parse_repeat_penalty(raw: object, prefix: str) -> RepeatPenaltyConfig:
+    """Parse the optional point-local repeated-penalty policy."""
+
+    if raw is None:
+        return RepeatPenaltyConfig()
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{prefix}.repeat_penalty must be an object")
+
+    enabled = _boolean(
+        raw.get("enabled", False),
+        f"{prefix}.repeat_penalty.enabled",
+    )
+    interval_raw = raw.get("interval_seconds")
+    if interval_raw is None:
+        interval_seconds = None
+    else:
+        interval_seconds = _positive_int(
+            interval_raw,
+            f"{prefix}.repeat_penalty.interval_seconds",
+        )
+    if enabled and interval_seconds is None:
+        raise ValueError(
+            f"{prefix}.repeat_penalty.interval_seconds is required when enabled"
+        )
+
+    max_units_raw = raw.get("max_units")
+    max_units = (
+        None
+        if max_units_raw is None
+        else _positive_int(
+            max_units_raw,
+            f"{prefix}.repeat_penalty.max_units",
+        )
+    )
+    return RepeatPenaltyConfig(
+        enabled=enabled,
+        interval_seconds=interval_seconds,
+        max_units=max_units,
     )
 
 

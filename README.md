@@ -202,9 +202,10 @@ LA-215077  LA-215177  LA-217075
 规则目录见
 [`component_viscosity_control`](src/dcs_performance/rules/component_viscosity_control/README.md)。
 当前启用点为 `PI-2311001/AI1/PV.CV`：原始值按 1 分钟取中位数，再作 10 分钟尾随
-平均；目标值为 16.05，正常范围为 15.95～16.25。异常趋势连续超过 600 秒产生
-`viscosity_low` 或 `viscosity_high` 事件，每次 2 分。考核窗口为上班后 1 小时至下个
-班上班前 1 小时，扰动区间按配置排除。
+平均；目标值为 16.05，正常范围为 15.95～16.25。异常趋势连续超过 600 秒产生一个
+`viscosity_low` 或 `viscosity_high` 事件，首次确认后每 1800 秒追加一个 penalty unit，
+每个 unit 2 分。考核窗口为上班后 1 小时至下个班上班前 1 小时，扰动区间按配置排除；
+事件和 penalty units 分开记录，详情见规则 README。
 
 ### 浆料进料量平衡考核
 

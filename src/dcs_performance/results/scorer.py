@@ -89,6 +89,14 @@ class AssessmentScorer:
         else:
             score = _default_score(scoring)
 
+        multiplier = _score_multiplier(evaluated.event.data)
+        final_score = score * multiplier
+        event_data = dict(evaluated.event.data)
+        if "score_multiplier" in event_data:
+            # Keep the configured unit score auditable while the public
+            # AssignedAssessmentEvent.score remains the final score.
+            event_data["base_score"] = score
+
         return AssignedAssessmentEvent(
             rule_id=evaluated.rule_id,
             rule_name=evaluated.rule_name,
@@ -97,11 +105,11 @@ class AssessmentScorer:
             shift_end=evaluated.shift.end_time,
             event_start=evaluated.event.start_time,
             event_end=evaluated.event.end_time,
-            score=score,
+            score=final_score,
             message=evaluated.event.message,
             window_start=evaluated.window.start_time,
             window_end=evaluated.window.end_time,
-            data=dict(evaluated.event.data),
+            data=event_data,
         )
 
 
@@ -128,6 +136,18 @@ def _default_score(scoring: Mapping[str, object]) -> float:
         "rule config scoring must define a matching event/point score "
         "or default_score_per_event"
     )
+
+
+def _score_multiplier(event_data: Mapping[str, object]) -> float:
+    """Validate and return an optional event-provided score multiplier."""
+
+    value = event_data.get("score_multiplier", 1)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("event data score_multiplier must be a finite non-negative number")
+    numeric = float(value)
+    if not isfinite(numeric) or numeric < 0:
+        raise ValueError("event data score_multiplier must be a finite non-negative number")
+    return numeric
 
 
 def _lookup_score_key(

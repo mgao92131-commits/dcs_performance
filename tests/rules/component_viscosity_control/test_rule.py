@@ -79,7 +79,112 @@ def test_rule_emits_low_viscosity_event_from_clean_trailing_mean():
     assert event.data["smoothing"]["window_seconds"] == 600
     assert event.data["aggregation"]["bucket_seconds"] == 60
     assert event.data["merge_gap_seconds"] == 600
+    assert event.data["penalty"]["enabled"] is False
+    assert event.data["penalty"]["units"] == 1
+    assert event.data["score_multiplier"] == 1
     assert event.start_time >= START
+
+
+def test_long_event_stays_one_event_and_adds_repeated_penalty_checkpoints():
+    raw_config = config()
+    point = raw_config["parameters"]["points"][0]
+    point["smoothing"]["enabled"] = False
+    point["assessment"]["repeat_penalty"] = {
+        "enabled": True,
+        "interval_seconds": 1800,
+        "max_units": None,
+    }
+
+    history = [make_history_sample(START - timedelta(minutes=1), "16.05")]
+    history.extend(
+        make_history_sample(START + timedelta(minutes=index), "15.85")
+        for index in range(120)
+    )
+    history.append(make_history_sample(START + timedelta(minutes=120), "16.05"))
+
+    events = Rule(
+        FakeDataClient({"PI-2311001/AI1/PV.CV": history}),
+        raw_config,
+    ).evaluate(START, END)
+
+    assert len(events) == 1
+    event = events[0]
+    assert event.data["event_type"] == "viscosity_low"
+    assert event.data["duration_seconds"] == 120 * 60
+    assert event.data["penalty"]["units"] == 4
+    assert event.data["score_multiplier"] == 4
+    assert event.data["penalty"]["checkpoints"] == [
+        START + timedelta(seconds=600 + index * 1800)
+        for index in range(4)
+    ]
+
+
+def test_short_recovery_does_not_reset_repeated_penalty_clock():
+    raw_config = config()
+    point = raw_config["parameters"]["points"][0]
+    point["smoothing"]["enabled"] = False
+    point["assessment"]["repeat_penalty"] = {
+        "enabled": True,
+        "interval_seconds": 1800,
+        "max_units": None,
+    }
+
+    history = [make_history_sample(START - timedelta(minutes=1), "16.05")]
+    history.extend(
+        make_history_sample(START + timedelta(minutes=index), "15.85")
+        for index in range(20)
+    )
+    history.extend(
+        make_history_sample(START + timedelta(minutes=index), "16.05")
+        for index in range(20, 25)
+    )
+    history.extend(
+        make_history_sample(START + timedelta(minutes=index), "15.85")
+        for index in range(25, 120)
+    )
+    history.append(make_history_sample(START + timedelta(minutes=120), "16.05"))
+
+    events = Rule(
+        FakeDataClient({"PI-2311001/AI1/PV.CV": history}),
+        raw_config,
+    ).evaluate(START, END)
+
+    assert len(events) == 1
+    assert events[0].data["penalty"]["units"] == 4
+
+
+def test_recovery_longer_than_merge_gap_starts_a_new_penalty_clock():
+    raw_config = config()
+    point = raw_config["parameters"]["points"][0]
+    point["smoothing"]["enabled"] = False
+    point["assessment"]["repeat_penalty"] = {
+        "enabled": True,
+        "interval_seconds": 1800,
+        "max_units": None,
+    }
+
+    history = [make_history_sample(START - timedelta(minutes=1), "16.05")]
+    history.extend(
+        make_history_sample(START + timedelta(minutes=index), "15.85")
+        for index in range(20)
+    )
+    history.extend(
+        make_history_sample(START + timedelta(minutes=index), "16.05")
+        for index in range(20, 32)
+    )
+    history.extend(
+        make_history_sample(START + timedelta(minutes=index), "15.85")
+        for index in range(32, 62)
+    )
+    history.append(make_history_sample(START + timedelta(minutes=62), "16.05"))
+
+    events = Rule(
+        FakeDataClient({"PI-2311001/AI1/PV.CV": history}),
+        raw_config,
+    ).evaluate(START, END)
+
+    assert len(events) == 2
+    assert [event.data["penalty"]["units"] for event in events] == [1, 1]
 
 
 def test_rule_does_not_use_disturbance_values_for_a_viscosity_event():

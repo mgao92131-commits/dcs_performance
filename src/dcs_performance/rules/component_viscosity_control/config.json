@@ -32,7 +32,12 @@
           "low_limit": 15.95,
           "high_limit": 16.25,
           "min_duration_seconds": 600,
-          "merge_gap_seconds": 600
+          "merge_gap_seconds": 600,
+          "repeat_penalty": {
+            "enabled": true,
+            "interval_seconds": 1800,
+            "max_units": null
+          }
         },
         "exclusion": {
           "enabled": true,

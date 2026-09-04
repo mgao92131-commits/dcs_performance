@@ -81,7 +81,8 @@ Shift
 
 ### `results/`
 
-- `scorer.py`：只从 `EvaluatedAssessmentEvent.config["scoring"]` 读取积分，
+- `scorer.py`：从 `EvaluatedAssessmentEvent.config["scoring"]` 读取基础积分，并在事件
+  提供 `score_multiplier` 时应用该 multiplier，
   使用其中保存的正式 `Shift` 和 `AssessmentWindow`。
 - `summary.py`：按班次/责任窗口汇总事件总数、总分和配置点位明细；没有事件的
   配置点位也可以显示为 0 次、0 分。

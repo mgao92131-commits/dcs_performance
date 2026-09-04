@@ -42,7 +42,8 @@ JSON 使用 UTF-8、`ensure_ascii=False`、`indent=2` 和 `allow_nan=False`。da
 仍然表示“没有 violation event”，不表示该点已经完成有效考核；数据质量不会被当作
 扣分事件。
 
-图片 X 轴固定为该点的实际 assessment window，并在窗口超出正式班次时标记班次
+事件 `score` 是基础分乘可选的 `event.data.score_multiplier` 后的最终分数；当该字段
+不存在时 multiplier 默认为1。图片 X 轴固定为该点的实际 assessment window，并在窗口超出正式班次时标记班次
 边界。平滑、速率、趋势与状态重建所需的前后文按对应规则的查询规划读取，因此
 窗口边缘的派生曲线与规则检测使用同一处理逻辑；这些上下文样本不会写入 JSON。
 

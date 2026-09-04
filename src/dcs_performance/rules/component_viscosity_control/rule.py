@@ -36,6 +36,7 @@ from .detector import (
     exclude_disturbances,
     split_contiguous_segments,
 )
+from .scoring import calculate_penalty_checkpoints, calculate_penalty_units
 
 
 CONFIRMATION_MARGIN = timedelta(seconds=1)
@@ -305,6 +306,17 @@ def _build_event(
     viscosity_event_type = "viscosity_low" if is_low else "viscosity_high"
     direction_text = "偏低" if is_low else "偏高"
     assessment = point.assessment
+    penalty_units = calculate_penalty_units(
+        duration_seconds,
+        assessment.min_duration_seconds,
+        assessment.repeat_penalty,
+    )
+    penalty_checkpoints = calculate_penalty_checkpoints(
+        event_start,
+        duration_seconds,
+        assessment.min_duration_seconds,
+        assessment.repeat_penalty,
+    )
     return AssessmentEvent(
         start_time=event_start,
         end_time=event_end,
@@ -326,6 +338,15 @@ def _build_event(
             "duration_seconds": duration_seconds,
             "min_duration_seconds": assessment.min_duration_seconds,
             "merge_gap_seconds": assessment.merge_gap_seconds,
+            "penalty": {
+                "enabled": assessment.repeat_penalty.enabled,
+                "initial_threshold_seconds": assessment.min_duration_seconds,
+                "repeat_interval_seconds": assessment.repeat_penalty.interval_seconds,
+                "max_units": assessment.repeat_penalty.max_units,
+                "units": penalty_units,
+                "checkpoints": penalty_checkpoints,
+            },
+            "score_multiplier": penalty_units,
             "extreme_value": extreme_value,
             "extreme_time": extreme_time,
             "is_open": is_open,

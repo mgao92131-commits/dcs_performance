@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import pytest
+
 from dcs_performance.core.evaluation import EvaluatedAssessmentEvent
 from dcs_performance.core.event import AssessmentEvent
 from dcs_performance.core.window import TimeRange
@@ -193,3 +195,49 @@ def test_scorer_falls_back_from_point_event_type_to_event_type_then_point():
         },
     )
     assert AssessmentScorer().score(evaluated).score == 4
+
+
+def test_scorer_applies_event_score_multiplier_after_resolving_base_score():
+    evaluated = make_evaluated("LA-115077")
+    evaluated = EvaluatedAssessmentEvent(
+        rule_id=evaluated.rule_id,
+        rule_name=evaluated.rule_name,
+        shift=evaluated.shift,
+        window=evaluated.window,
+        event=AssessmentEvent(
+            start_time=evaluated.event.start_time,
+            end_time=evaluated.event.end_time,
+            data={
+                "point_id": "LA-115077",
+                "event_type": "persistent_high",
+                "score_multiplier": 4,
+            },
+        ),
+        config=evaluated.config,
+    )
+
+    assigned = AssessmentScorer().score(evaluated)
+
+    assert assigned.score == 8
+    assert assigned.data["score_multiplier"] == 4
+    assert assigned.data["base_score"] == 2
+
+
+@pytest.mark.parametrize("multiplier", [True, -1, float("nan"), "4"])
+def test_scorer_rejects_invalid_score_multiplier(multiplier):
+    evaluated = make_evaluated("LA-115077")
+    evaluated = EvaluatedAssessmentEvent(
+        rule_id=evaluated.rule_id,
+        rule_name=evaluated.rule_name,
+        shift=evaluated.shift,
+        window=evaluated.window,
+        event=AssessmentEvent(
+            start_time=evaluated.event.start_time,
+            end_time=evaluated.event.end_time,
+            data={"point_id": "LA-115077", "score_multiplier": multiplier},
+        ),
+        config=evaluated.config,
+    )
+
+    with pytest.raises(ValueError, match="score_multiplier"):
+        AssessmentScorer().score(evaluated)
