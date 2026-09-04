@@ -116,10 +116,10 @@ shift = resolver.resolve(datetime(2026, 9, 10, 14, 0))
 
 ## 与考核规则的边界
 
-排班模块只提供班次的真实起止时间。规则仍然使用既有接口：
+排班模块只提供班次的真实起止时间。规则通过统一接口执行：
 
 ```python
-rule.evaluate(start_time, end_time)
+rule.evaluate(start_time, end_time, point_ids=None)
 ```
 
 例如规则可以把白班 `08:00-20:00` 转成自己的 assessment window

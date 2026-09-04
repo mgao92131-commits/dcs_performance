@@ -9,23 +9,6 @@
   "parameters": {
     "points": [
       {
-        "id": "TI-013008",
-        "history_tag": "TI-013008/AI1/PV.CV",
-        "enabled": true,
-        "low": {
-          "enabled": true,
-          "limit": 80.0,
-          "min_duration_seconds": 300,
-          "merge_gap_seconds": 20
-        },
-        "high": {
-          "enabled": true,
-          "limit": 120.0,
-          "min_duration_seconds": 300,
-          "merge_gap_seconds": 20
-        }
-      },
-      {
         "id": "LICA-012019",
         "history_tag": "LICA-012019/PID1/PV.CV",
         "enabled": true,
@@ -59,8 +42,8 @@
         "id": "LIC-017149",
         "history_tag": "LICA-017149/PID1/PV.CV",
         "enabled": true,
-        "low": {"enabled": true, "limit": 37.0, "min_duration_seconds": 300, "merge_gap_seconds": 20},
-        "high": {"enabled": true, "limit": 43.0, "min_duration_seconds": 300, "merge_gap_seconds": 20}
+        "low": {"enabled": true, "limit": 36.0, "min_duration_seconds": 300, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 44.0, "min_duration_seconds": 300, "merge_gap_seconds": 20}
       },
       {
         "id": "LIC-117016",
@@ -170,26 +153,60 @@
         },
         "low": {"enabled": true, "limit": 0.641, "min_duration_seconds": 300, "merge_gap_seconds": 180},
         "high": {"enabled": true, "limit": 0.643, "min_duration_seconds": 300, "merge_gap_seconds": 180}
+      },
+      {
+        "id": "EU-II-217R011",
+        "history_tag": "EU-II-217R011/AI1/PV.CV",
+        "enabled": true,
+        "assessment_window": {
+          "start_offset_minutes": 240,
+          "end_offset_minutes": 0
+        },
+        "low": {"enabled": true, "limit": 82.5, "min_duration_seconds": 300, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 85.5, "min_duration_seconds": 300, "merge_gap_seconds": 20},
+        "max_events_per_window": 1
+      },
+      {
+        "id": "EU-II-117R011",
+        "history_tag": "EU-II-117R011/AI1/PV.CV",
+        "enabled": true,
+        "assessment_window": {
+          "start_offset_minutes": 240,
+          "end_offset_minutes": 0
+        },
+        "low": {"enabled": true, "limit": 81.5, "min_duration_seconds": 300, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 84.5, "min_duration_seconds": 300, "merge_gap_seconds": 20},
+        "max_events_per_window": 1
+      },
+      {
+        "id": "WIC-011006",
+        "history_tag": "WIC-011006/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 69.4, "min_duration_seconds": 300, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 69.6, "min_duration_seconds": 300, "merge_gap_seconds": 20}
+      },
+      {
+        "id": "LIC-011007",
+        "history_tag": "LICA-011007/PID1/PV.CV",
+        "enabled": true,
+        "low": {"enabled": true, "limit": 83.0, "min_duration_seconds": 300, "merge_gap_seconds": 20},
+        "high": {"enabled": true, "limit": 85.0, "min_duration_seconds": 300, "merge_gap_seconds": 20}
       }
     ]
   },
   "scoring": {
     "default_score_per_event": 1,
     "by_point_event_type": {
-      "TI-013008": {
-        "low_limit": 1,
-        "high_limit": 1
-      },
       "LICA-012019": {
-        "low_limit": 2,
-        "high_limit": 2
+        "low_limit": 3,
+        "high_limit": 3
       },
-      "LIC-013107": {"low_limit": 1, "high_limit": 1},
-      "LIC-017149": {"low_limit": 1, "high_limit": 1},
-      "LIC-117016": {"low_limit": 1, "high_limit": 1},
-      "LIC-217016": {"low_limit": 1, "high_limit": 1},
-      "TIC-013060": {"low_limit": 1, "high_limit": 1},
-      "LIC-013065": {"low_limit": 1, "high_limit": 1},
+      "LIC-013107": {"low_limit": 3, "high_limit": 3},
+      "LIC-017149": {"low_limit": 3, "high_limit": 3},
+      "LIC-117016": {"low_limit": 2, "high_limit": 2},
+      "LIC-217016": {"low_limit": 2, "high_limit": 2},
+      "TIC-013060": {"low_limit": 2, "high_limit": 2},
+      "LIC-013065": {"low_limit": 2, "high_limit": 2},
       "TIC-012022": {"low_limit": 1, "high_limit": 1},
       "TIC-015009": {"low_limit": 1, "high_limit": 1},
       "TIC-117117": {"low_limit": 1, "high_limit": 1},
@@ -197,8 +214,12 @@
       "TIC-117001": {"low_limit": 1, "high_limit": 1},
       "TIC-217001": {"low_limit": 1, "high_limit": 1},
       "TIA-023052": {"low_limit": 1, "high_limit": 1},
-      "TI-011003": {"low_limit": 1, "high_limit": 1},
-      "VIT-118020": {"low_limit": 1, "high_limit": 1}
+      "TI-011003": {"low_limit": 3, "high_limit": 3},
+      "VIT-118020": {"low_limit": 3, "high_limit": 3},
+      "EU-II-217R011": {"low_limit": 2, "high_limit": 2},
+      "EU-II-117R011": {"low_limit": 2, "high_limit": 2},
+      "WIC-011006": {"low_limit": 2, "high_limit": 2},
+      "LIC-011007": {"low_limit": 2, "high_limit": 2}
     }
   }
 }

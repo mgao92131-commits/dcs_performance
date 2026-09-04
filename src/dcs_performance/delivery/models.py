@@ -21,11 +21,10 @@ class PointAssessmentResult:
     data_status: str
     image_path: str
     events: tuple[AssignedAssessmentEvent, ...]
+    # The effective assessment window is part of the point's identity in a
+    # Result Package, including the zero-event case.
+    window: TimeRange
     metadata: Mapping[str, Any] = field(default_factory=dict)
-    # Effective point-local assessment window.  Optional only to preserve
-    # source compatibility for callers that construct this delivery model
-    # directly; published Result Packages always populate it.
-    window: TimeRange | None = None
 
 
 @dataclass(frozen=True)

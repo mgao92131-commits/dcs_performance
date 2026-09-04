@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Iterable, Mapping
 from datetime import datetime, timedelta
 from math import isfinite
 from typing import Any
 
 from dcs_performance.core.event import AssessmentEvent
+from dcs_performance.core.points import select_points
 from dcs_performance.data.client import DcsDataClient
 from dcs_performance.data.history_context import (
     get_histories_with_previous_samples,
@@ -56,7 +57,10 @@ class Rule:
         parameters = self.config.get("parameters")
         if not isinstance(parameters, Mapping):
             raise ValueError("pump_flow_compliance parameters must be an object")
-        self.points = _validate_points(parameters.get("points"))
+        self.all_points = _validate_points(parameters.get("points"))
+        self.points = tuple(
+            point for point in self.all_points if point.get("enabled", True)
+        )
         self.max_switch_duration_seconds = max(
             (point["max_switch_duration_seconds"] for point in self.points),
             default=0.0,
@@ -75,28 +79,46 @@ class Rule:
             )
             for point in self.points
         )
+        self.detectors_by_point = {
+            point["id"]: detector
+            for point, detector in zip(self.points, self.detectors)
+        }
 
     def evaluate(
         self,
         start_time: datetime,
         end_time: datetime,
+        *,
+        point_ids: Collection[str] | None = None,
     ) -> list[AssessmentEvent]:
         """Evaluate the responsibility window using a bounded context tail."""
 
         _validate_range(start_time, end_time)
-        if not self.points:
+        selected_points = select_points(
+            self.all_points,
+            point_ids,
+            rule_id=self.id,
+        )
+        if not selected_points:
             return []
-        analysis_start = start_time - self.lookback
-        observation_end = end_time + self.lookback
+        lookback = timedelta(
+            seconds=max(
+                point["max_switch_duration_seconds"]
+                for point in selected_points
+            )
+        )
+        analysis_start = start_time - lookback
+        observation_end = end_time + lookback
         histories = get_histories_with_previous_samples(
             self.data,
-            self._history_tags(),
+            self._history_tags(selected_points),
             analysis_start,
             observation_end,
         )
 
         events: list[AssessmentEvent] = []
-        for point, detector in zip(self.points, self.detectors):
+        for point in selected_points:
+            detector = self.detectors_by_point[point["id"]]
             occurrences = detector.detect(
                 histories,
                 window_start=start_time,
@@ -134,9 +156,9 @@ class Rule:
             ),
         )
 
-    def _history_tags(self) -> list[str]:
+    def _history_tags(self, points: Iterable[Mapping[str, Any]]) -> list[str]:
         tags: list[str] = []
-        for point in self.points:
+        for point in points:
             for field in ("pump_a_tag", "pump_b_tag", "flow_tag"):
                 tag = point[field]
                 if tag not in tags:
@@ -170,6 +192,7 @@ def _validate_points(raw_points: object) -> tuple[dict[str, Any], ...]:
         if not isinstance(enabled, bool):
             raise ValueError(f"parameters.points[{index}].enabled must be boolean")
         if not enabled:
+            points.append({"id": point_id, "enabled": False})
             continue
         missing = [field for field in required_fields if field not in raw_point]
         if missing:

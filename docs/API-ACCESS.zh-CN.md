@@ -77,7 +77,7 @@ GET /api/v1/history?tag=<TAG>&from=<FROM>&to=<TO>
 例如：
 
 ```text
-GET /api/v1/history?tag=TI-013008%2FAI1%2FPV.CV&from=2026-08-31T00%3A00%3A00&to=2026-08-31T02%3A00%3A00
+GET /api/v1/history?tag=WIC-011006%2FPID1%2FPV.CV&from=2026-08-31T00%3A00%3A00&to=2026-08-31T02%3A00%3A00
 ```
 
 客户端对一个范围只发一个 History 请求，不传 `limit`，不按 24 小时人工切段，
@@ -199,7 +199,7 @@ History 和 Event 的原始模型分别保留十列和十七列；Event 的 `Dat
 curl --fail-with-body \
   -D history.headers.txt \
   -o history.csv \
-  "http://192.168.1.10:8088/api/v1/history?tag=TI-013008%2FAI1%2FPV.CV&from=2026-08-31T00%3A00%3A00&to=2026-08-31T02%3A00%3A00"
+  "http://192.168.1.10:8088/api/v1/history?tag=WIC-011006%2FPID1%2FPV.CV&from=2026-08-31T00%3A00%3A00&to=2026-08-31T02%3A00%3A00"
 ```
 
 ```bash

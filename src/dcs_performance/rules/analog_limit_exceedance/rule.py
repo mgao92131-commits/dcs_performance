@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
 from dcs_performance.core.event import AssessmentEvent
+from dcs_performance.core.points import select_points
 from dcs_performance.data.client import DcsDataClient
 from dcs_performance.data.history_context import (
     get_histories_with_previous_samples,
@@ -84,34 +85,41 @@ class Rule:
         self,
         start_time: datetime,
         end_time: datetime,
+        *,
+        point_ids: Collection[str] | None = None,
     ) -> list[AssessmentEvent]:
         """Evaluate one responsibility window with a confirmation tail."""
 
         _validate_range(start_time, end_time)
-        enabled_points = tuple(point for point in self.points if point.enabled)
-        if not enabled_points:
+        selected_points = select_points(
+            self.points,
+            point_ids,
+            rule_id=self.id,
+        )
+        if not selected_points:
             return []
 
         query_end = (
             end_time
-            + timedelta(seconds=self.max_confirmation_tail_seconds)
+            + timedelta(seconds=_max_confirmation_tail_seconds(selected_points))
             + CONFIRMATION_MARGIN
         )
         analysis_start = start_time - timedelta(
-            seconds=_max_smoothing_window_seconds(enabled_points)
+            seconds=_max_smoothing_window_seconds(selected_points)
         )
         histories = self._get_histories(
-            enabled_points,
+            selected_points,
             analysis_start,
             query_end,
         )
 
         events: list[AssessmentEvent] = []
-        for point in enabled_points:
+        for point in selected_points:
             smoothed_history = smooth_history_segments(
                 histories.get(point.history_tag, []),
                 point.smoothing,
             )
+            qualified_occurrences = []
             for segment_index, samples in enumerate(smoothed_history.segments):
                 if not samples:
                     continue
@@ -120,38 +128,52 @@ class Rule:
                     if smoothed_history.terminated_by_boundary[segment_index]
                     else None
                 )
-                occurrences = self.detector.detect(
+                segment_occurrences = self.detector.detect(
                     samples,
                     point,
                     start_time=start_time,
                     observation_end=query_end,
                     close_at_boundary=boundary_end,
                 )
-                for occurrence in occurrences:
+                for occurrence in segment_occurrences:
                     # Ownership is determined by the observed violation start,
                     # never by the eventual recovery time.
                     if not (start_time <= occurrence.start_time < end_time):
                         continue
 
-                    event_end = occurrence.end_time or query_end
-                    if event_end <= occurrence.start_time:
-                        # The detector normally prevents this.  Keep the Rule
-                        # boundary safe if a custom detector is supplied later.
-                        continue
-                    events.append(
-                        self._build_event(
-                            point,
-                            occurrence.event_type,
-                            occurrence.start_time,
-                            event_end,
-                            occurrence.end_time,
-                            occurrence.duration_seconds,
-                            occurrence.limit,
-                            occurrence.extreme_value,
-                            occurrence.extreme_time,
-                            occurrence.is_open,
-                        )
+                    qualified_occurrences.append(occurrence)
+
+            qualified_occurrences.sort(
+                key=lambda occurrence: (
+                    occurrence.start_time,
+                    occurrence.event_type,
+                )
+            )
+            if point.max_events_per_window is not None:
+                qualified_occurrences = qualified_occurrences[
+                    : point.max_events_per_window
+                ]
+
+            for occurrence in qualified_occurrences:
+                event_end = occurrence.end_time or query_end
+                if event_end <= occurrence.start_time:
+                    # The detector normally prevents this.  Keep the Rule
+                    # boundary safe if a custom detector is supplied later.
+                    continue
+                events.append(
+                    self._build_event(
+                        point,
+                        occurrence.event_type,
+                        occurrence.start_time,
+                        event_end,
+                        occurrence.end_time,
+                        occurrence.duration_seconds,
+                        occurrence.limit,
+                        occurrence.extreme_value,
+                        occurrence.extreme_time,
+                        occurrence.is_open,
                     )
+                )
 
         events.sort(
             key=lambda event: (

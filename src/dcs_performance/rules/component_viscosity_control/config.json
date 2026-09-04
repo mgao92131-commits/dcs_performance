@@ -12,6 +12,10 @@
         "id": "PI-2311001",
         "history_tag": "PI-2311001/AI1/PV.CV",
         "enabled": true,
+        "assessment_window": {
+          "start_offset_minutes": 60,
+          "end_offset_minutes": 60
+        },
         "aggregation": {
           "method": "median",
           "bucket_seconds": 60,
@@ -45,8 +49,8 @@
     "default_score_per_event": 1,
     "by_point": {
       "PI-2311001": {
-        "viscosity_low": 1,
-        "viscosity_high": 1
+        "viscosity_low": 2,
+        "viscosity_high": 2
       }
     }
   }

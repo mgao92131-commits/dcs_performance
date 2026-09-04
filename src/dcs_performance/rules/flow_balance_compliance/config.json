@@ -30,8 +30,8 @@
     "default_score_per_event": 1,
     "by_point": {
       "SLURRY_FLOW_BALANCE": {
-        "flow_low": 1,
-        "flow_high": 1
+        "flow_low": 2,
+        "flow_high": 2
       }
     }
   }

@@ -21,8 +21,9 @@ def point(
     enabled=True,
     low=None,
     high=None,
+    max_events_per_window=None,
 ):
-    return {
+    result = {
         "id": point_id,
         "history_tag": tag,
         "enabled": enabled,
@@ -41,6 +42,9 @@ def point(
             "merge_gap_seconds": 20,
         },
     }
+    if max_events_per_window is not None:
+        result["max_events_per_window"] = max_events_per_window
+    return result
 
 
 def config(points):
@@ -103,6 +107,21 @@ def test_each_point_keeps_independent_limits():
     assert parsed.points[1].high.min_duration_seconds == 90.0
     with pytest.raises(Exception):
         parsed.points[0].low = parsed.points[0].low
+
+
+def test_point_parses_max_events_per_window():
+    parsed = parse_config(config([point(max_events_per_window=1)]))
+
+    assert parsed.points[0].max_events_per_window == 1
+
+
+@pytest.mark.parametrize("value", [0, -1, 1.5, True, "1"])
+def test_point_rejects_invalid_max_events_per_window(value):
+    raw = config([point()])
+    raw["parameters"]["points"][0]["max_events_per_window"] = value
+
+    with pytest.raises(ValueError, match="max_events_per_window"):
+        parse_config(raw)
 
 
 def test_point_can_enable_low_only():

@@ -1,5 +1,6 @@
 """The single public interface implemented by assessment rules."""
 
+from collections.abc import Collection
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
@@ -17,7 +18,9 @@ class AssessmentRule(Protocol):
         self,
         start_time: datetime,
         end_time: datetime,
+        *,
+        point_ids: Collection[str] | None = None,
     ) -> list[AssessmentEvent]:
-        """Return all assessment events in ``start_time``/``end_time``."""
+        """Return events for all, or the requested subset of, enabled points."""
 
         ...

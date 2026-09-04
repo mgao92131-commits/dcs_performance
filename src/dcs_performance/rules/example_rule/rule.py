@@ -1,9 +1,11 @@
 """A deliberately empty assessment rule used as an interface example."""
 
 from datetime import datetime
+from collections.abc import Collection
 from typing import Any, Mapping
 
 from dcs_performance.core.event import AssessmentEvent
+from dcs_performance.core.points import select_points
 from dcs_performance.data.client import DcsDataClient
 
 
@@ -29,9 +31,15 @@ class Rule:
         self,
         start_time: datetime,
         end_time: datetime,
+        *,
+        point_ids: Collection[str] | None = None,
     ) -> list[AssessmentEvent]:
         """Return no events; this rule must not access real DCS data."""
 
         if end_time <= start_time:
             raise ValueError("end_time must be after start_time")
+        # The example rule has no configured points.  Keep the same strict
+        # subset semantics as point-aware production rules for callers that
+        # accidentally pass an ID.
+        select_points((), point_ids, rule_id=self.id)
         return []

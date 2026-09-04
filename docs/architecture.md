@@ -9,21 +9,22 @@
   -> ShiftCalendar
   -> ShiftResolver
   -> Shift
-  -> AssessmentWindow
-  -> Rule
+  -> effective point windows
+  -> Rule.evaluate(..., point_ids=...)
   -> EvaluatedAssessmentEvent
   -> Scoring
   -> AssignedAssessmentEvent
   -> ShiftAssessmentSummary
 ```
 
-规则仍然可以单独使用原有接口：
+规则通过统一接口执行：
 
 ```text
 Shift
   -> RuleLoader.load_enabled()
   -> AssessmentWindow
-  -> Rule.evaluate(start_time, end_time)
+  -> group enabled points by effective window
+  -> Rule.evaluate(start_time, end_time, point_ids=group_point_ids)
   -> list[AssessmentEvent]
 ```
 
@@ -42,6 +43,7 @@ Shift
 ### `core/`
 
 - `event.py`：统一的 `AssessmentEvent`。
+- `points.py`：统一的启用点选择与 `point_ids` 校验。
 - `rule.py`：所有规则必须满足的 `AssessmentRule` 协议。
 - `window.py`：根据班次和规则本地配置生成实际考核时间段。
 - `result.py`：`AssignedAssessmentEvent`，包括正式班次、责任窗口、事件和积分。

@@ -15,6 +15,21 @@
 每个点的 `low`、`high` 可以独立启用，并且各自拥有自己的 `limit`、
 `min_duration_seconds` 和 `merge_gap_seconds`。
 
+点位还可以配置 `max_events_per_window` 限制一个点在一个有效考核窗口内最多计入的
+事件数。当前新增的 `EU-II-217R011` 和 `EU-II-117R011` 配置为 `1`：低限和高限的
+多次合格超限统一按本点本班次一次计分，保留最早发生的合格事件。该限制只影响结果
+交付中的事件数量和评分，不会改变检测器对原始超限区间的判断。
+
+`WIC-011006/PID1/PV.CV` 也按本规则考核，正常范围为 69.4～69.6，低限和高限每次
+2 分；未单独配置考核窗口时，沿用规则默认的整个班次窗口。
+
+`LICA-011007/PID1/PV.CV`（点位 ID：`LIC-011007`）的正常范围为 83.0～85.0，低限和高限每次 2 分，其他
+持续时间和窗口规则与本规则默认值相同。
+
+`EU-II-217R011` 的中心值为 84，正常范围为 82.5～85.5；`EU-II-117R011` 的中心值为
+83，正常范围为 81.5～84.5。两点均从班次开始后 4 小时起考核至班次结束，低限和高限
+每次 2 分。
+
 ## 时间规则
 
 只有当同方向超限的持续时间严格满足：
@@ -72,28 +87,33 @@ Rule 会通过共享的 `history_context` 查询考核窗口前最近一个样�
   "parameters": {
     "points": [
       {
-        "id": "TI-013008",
-        "history_tag": "TI-013008/AI1/PV.CV",
+        "id": "EU-II-217R011",
+        "history_tag": "EU-II-217R011/AI1/PV.CV",
         "enabled": true,
+        "assessment_window": {
+          "start_offset_minutes": 240,
+          "end_offset_minutes": 0
+        },
         "low": {
           "enabled": true,
-          "limit": 80.0,
+          "limit": 82.5,
           "min_duration_seconds": 300,
           "merge_gap_seconds": 20
         },
         "high": {
           "enabled": true,
-          "limit": 120.0,
+          "limit": 85.5,
           "min_duration_seconds": 300,
           "merge_gap_seconds": 20
-        }
+        },
+        "max_events_per_window": 1
       }
     ]
   },
   "scoring": {
     "default_score_per_event": 1,
     "by_point_event_type": {
-      "TI-013008": {"low_limit": 1, "high_limit": 1}
+      "EU-II-217R011": {"low_limit": 2, "high_limit": 2}
     }
   }
 }

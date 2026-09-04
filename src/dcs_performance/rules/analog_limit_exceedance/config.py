@@ -46,6 +46,9 @@ class PointConfig:
     smoothing: SmoothingConfig
     low: LimitSideConfig
     high: LimitSideConfig
+    # Optional cap on qualified events in one responsibility window.  A value
+    # of 1 implements the business rule "multiple exceedances count once".
+    max_events_per_window: int | None = None
 
 
 @dataclass(frozen=True)
@@ -170,6 +173,10 @@ def _parse_point(raw_point: object, index: int) -> PointConfig:
     history_tag = _required_text(raw_point, "history_tag", prefix=prefix)
     enabled = _boolean(raw_point.get("enabled", True), f"{prefix}.enabled")
     smoothing = _parse_smoothing(raw_point.get("smoothing"), prefix)
+    max_events_per_window = _optional_positive_int(
+        raw_point.get("max_events_per_window"),
+        f"{prefix}.max_events_per_window",
+    )
 
     low = _parse_side(raw_point.get("low"), f"{prefix}.low")
     high = _parse_side(raw_point.get("high"), f"{prefix}.high")
@@ -189,6 +196,7 @@ def _parse_point(raw_point: object, index: int) -> PointConfig:
         smoothing=smoothing,
         low=low,
         high=high,
+        max_events_per_window=max_events_per_window,
     )
 
 
@@ -292,6 +300,12 @@ def _positive_int(value: object, field_name: str) -> int:
     if result <= 0:
         raise ValueError(f"{field_name} must be greater than zero")
     return result
+
+
+def _optional_positive_int(value: object, field_name: str) -> int | None:
+    if value is None:
+        return None
+    return _positive_int(value, field_name)
 
 
 def _finite_number(value: object, field_name: str) -> float:

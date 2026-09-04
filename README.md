@@ -2,8 +2,9 @@
 
 `dcs_performance` 是一个用于基于 DCS 历史数据和事件数据开展规则化绩效考核的 Python 项目。
 
-当前仓库包含一套可配置的班次级考核执行链，以及四个规则目录：
-`persistent_high_alarm`、`analog_limit_exceedance`、`analog_trend_stability` 和
+当前仓库包含一套可配置的班次级考核执行链，以及七个正式考核规则目录：
+`analog_limit_exceedance`、`analog_trend_stability`、`component_viscosity_control`、
+`flow_balance_compliance`、`level_rate_compliance`、`persistent_high_alarm` 和
 `pump_flow_compliance`，另有一个不访问数据的 `example_rule` 接口样例。规则不直接
 连接 DeltaV/DCS 数据库，而是通过只读 dcs-service V1 HTTP API 获取 DCS 数据。
 
@@ -14,7 +15,7 @@
 | `Rule` | 接收一段时间范围，返回这段时间内需要考核的 `AssessmentEvent` |
 | `Rule config` | 保存规则名称、启用状态、考核时间偏移、阈值/参数和评分配置 |
 | `Shift` | 表示已经确定的“谁在什么时间上班” |
-| `AssessmentWindow` | 将班次时间和规则配置转换为实际传给 `Rule.evaluate()` 的时间范围 |
+| `AssessmentWindow` | 将班次、规则默认值和点位覆盖转换为传给 `Rule.evaluate()` 的实际时间范围 |
 | `ShiftResolver` / `ShiftCalendar` | 根据配置计算班次并解析时间所属的班组/班次 |
 | `Assignment` | 将考核事件归属到班组/班次；有责任窗口的规则使用执行它的正式 `Shift` |
 | `Scoring` | 从规则配置读取点位/默认积分，生成 `AssignedAssessmentEvent` |
@@ -24,15 +25,20 @@
 规则本身不知道 A/B/C 班、白班、夜班或三班两倒。所有规则统一使用以下接口：
 
 ```python
-events = rule.evaluate(start_time, end_time)
+events = rule.evaluate(start_time, end_time, point_ids=None)
 # events: list[AssessmentEvent]
 ```
+
+`point_ids=None` 表示执行全部 enabled points；显式传入点 ID 集合时，规则只读取和计算
+这些点。Runner 会按每个点的 effective assessment window 分组，同一窗口的点合并为一次
+`evaluate(..., point_ids=[...])` 调用，不同窗口分别调用。未知或 disabled point ID 会
+明确失败，空集合直接返回空事件且不读取 Historian。
 
 `AssessmentEvent` 只描述问题发生的起止时间、消息和规则相关数据，不包含班组或得分。
 
 ## 规则目录约定
 
-每个考核点都是独立目录，配置跟随规则存放：
+每条考核规则都是独立目录，规则下的全部考核点配置跟随该规则存放：
 
 ```text
 src/dcs_performance/rules/<rule_id>/
@@ -105,11 +111,17 @@ print(shift.team_id, shift.shift_type, shift.start_time, shift.end_time)
 `RuleLoader.list_metadata()` 当前发现以下规则目录。是否执行由各目录的
 `config.json` 中的 `enabled` 控制：
 
+当前生产配置共有 35 个启用考核点；完整的点位、范围、持续时间、评分和考核窗口见
+[`docs/assessment-points.md`](docs/assessment-points.md)。
+
 | 规则 ID | 名称 | 默认状态 | 当前用途 |
 | --- | --- | --- | --- |
 | `analog_limit_exceedance` | 连续量上下限超限考核 | 启用 | 连续量上下限超限 |
 | `analog_trend_stability` | 连续量趋势稳定性考核 | 启用 | 趋势偏差和趋势漂移 |
+| `component_viscosity_control` | 组件粘度趋势控制 | 启用 | 粘度趋势上下限 |
 | `example_rule` | 示例考核规则 | 启用 | 空事件接口样例 |
+| `flow_balance_compliance` | 浆料进料量平衡考核 | 启用 | Logic 与 SY 总流量偏差 |
+| `level_rate_compliance` | 酯化液位变化速率考核 | 启用 | 液位变化速率 |
 | `persistent_high_alarm` | 持续高报考核 | 启用 | 数字量持续高报 |
 | `pump_flow_compliance` | 泵组流量考核 | 启用 | 泵组低流量和切泵超时 |
 
@@ -138,12 +150,39 @@ LA-215077  LA-215177  LA-217075
 
 | 点位 | Historian TAG | 低限 | 高限 | 最小持续时间 |
 | --- | --- | ---: | ---: | ---: |
-| `TI-013008` | `TI-013008/AI1/PV.CV` | 80 | 120 | 300 秒 |
-| `LICA-012019` | `LICA-012019/PID1/PV.CV` | 45 | 55 | 600 秒 |
+| `LICA-012019` | `LICA-012019/PID1/PV.CV` | 71 | 73 | 300 秒 |
+| `EU-II-217R011` | `EU-II-217R011/AI1/PV.CV` | 82.5 | 85.5 | 300 秒 |
+| `EU-II-117R011` | `EU-II-117R011/AI1/PV.CV` | 81.5 | 84.5 | 300 秒 |
+| `WIC-011006` | `WIC-011006/PID1/PV.CV` | 69.4 | 69.6 | 300 秒 |
+| `LIC-011007` | `LICA-011007/PID1/PV.CV` | 83.0 | 85.0 | 300 秒 |
+| `LIC-013107` | `LIC-013107/PID1/PV.CV` | 30.0 | 75.0 | 300 秒 |
+| `LIC-017149` | `LICA-017149/PID1/PV.CV` | 36.0 | 44.0 | 300 秒 |
+| `LIC-117016` | `LIC-117016/PID1/PV.CV` | 38.5 | 39.5 | 300 秒 |
+| `LIC-217016` | `LIC-217016/PID1/PV.CV` | 38.5 | 39.5 | 300 秒 |
+| `TIC-013060` | `TIC-013060/PID1/PV.CV` | 110.0 | 125.0 | 1800 秒 |
+| `LIC-013065` | `LIC-013065/PID1/PV.CV` | 62.0 | 68.0 | 600 秒 |
+| `TIC-012022` | `TIC-012022/PID1/PV.CV` | 288.3 | 289.7 | 600 秒 |
+| `TIC-015009` | `TIC-015009/PID1/PV.CV` | 289.3 | 290.7 | 600 秒 |
+| `TIC-117117` | `TIC-117117/PID1/PV.CV` | 297.3 | 298.7 | 600 秒 |
+| `TIC-217117` | `TIC-217117/PID1/PV.CV` | 297.3 | 298.7 | 600 秒 |
+| `TIC-117001` | `TIC-117001/PID1/PV.CV` | 280.3 | 281.7 | 600 秒 |
+| `TIC-217001` | `TIC-217001/PID1/PV.CV` | 280.3 | 281.7 | 600 秒 |
+| `TIA-023052` | `TIA-023052/AI1/PV.CV` | 110.0 | 140.0 | 3600 秒 |
+| `TI-011003` | `TI-011003/AI1/PV.CV` | 90.0 | 100.0 | 600 秒 |
+| `VIT-118020` | `VIT-118020/AI1/PV.CV` | 0.641 | 0.643 | 300 秒 |
 
 只有持续时间严格大于各方向的 `min_duration_seconds` 才生成事件；短暂恢复可按
 `merge_gap_seconds` 合并。事件记录超限方向、持续时间和极值，评分由
-`scoring.by_point_event_type` 配置，当前两个点位的低限/高限分值分别为 1/1 和 2/2。
+`scoring.by_point_event_type` 配置，当前示例点位 `LICA-012019` 的低限/高限分值为 3/3。
+`EU-II-217R011` 和 `EU-II-117R011` 从班次开始后 4 小时起考核至班次结束，低限/高限
+分值均为 2/2；每个点本班次多次合格超限只计一次。`WIC-011006` 的低限/高限分值为
+2/2，正常范围为 69.4～69.6。
+`LIC-011007` 的低限/高限分值为 2/2，正常范围为 83.0～85.0。
+
+完整的 20 个连续量点位清单、平滑参数、逐点考核窗口和各规则的全部考核点，见
+[`docs/assessment-points.md`](docs/assessment-points.md)。其中
+`EU-II-217R011`、`EU-II-117R011` 的考核从班次开始后 4 小时起，其他连续量点沿用
+整个班次窗口；表中最小持续时间按各点配置执行。
 
 ### 连续量趋势稳定性考核
 
@@ -158,11 +197,37 @@ LA-215077  LA-215177  LA-217075
 
 评分使用事件的 `point_id` 和 `score_key`，不在规则代码中写死。
 
+### 组件粘度趋势控制
+
+规则目录见
+[`component_viscosity_control`](src/dcs_performance/rules/component_viscosity_control/README.md)。
+当前启用点为 `PI-2311001/AI1/PV.CV`：原始值按 1 分钟取中位数，再作 10 分钟尾随
+平均；目标值为 16.05，正常范围为 15.95～16.25。异常趋势连续超过 600 秒产生
+`viscosity_low` 或 `viscosity_high` 事件，每次 2 分。考核窗口为上班后 1 小时至下个
+班上班前 1 小时，扰动区间按配置排除。
+
+### 浆料进料量平衡考核
+
+规则目录见
+[`flow_balance_compliance`](src/dcs_performance/rules/flow_balance_compliance/README.md)。
+`SLURRY_FLOW_BALANCE` 使用 `LOGIC27/YK-TLFH/OUT1.CV` 减去
+`SY-116/AI1/PV.CV + SY-216/AI1/PV.CV` 的 60 秒尾随平均偏差；偏差低于 -15 或
+高于 +15 且连续达到 300 秒产生事件，每次 2 分。三个信号缺一时不把缺失值当作 0。
+
+### 酯化液位变化速率考核
+
+规则目录见
+[`level_rate_compliance`](src/dcs_performance/rules/level_rate_compliance/README.md)。
+`LICA-012019/PID1/PV.CV` 先作 60 秒尾随平均，再计算 2 小时变化速率；低于
+-0.14 或高于 +0.14 液位/小时并连续达到 7200 秒产生下降/上升事件，每次 2 分。
+该规则只考核变化速率，绝对液位由 `analog_limit_exceedance` 另行考核。
+
 ### 泵组流量考核
 
 规则目录见
 [`pump_flow_compliance`](src/dcs_performance/rules/pump_flow_compliance/README.md)。
-当前配置为启用，包含 `117P01`、`115P05` 和 `115P03` 三个泵组。规则根据 A/B
+当前配置为启用，包含 `117P01`、`115P05`、`115P03`、`217P01`、`215P05` 和
+`215P03` 六个泵组。规则根据 A/B
 泵状态重建正常运行或切泵状态，并检测动态最低流量和切泵超时；切泵超时严格使用
 `duration > max_switch_duration_seconds`。默认评分为低流量事件 1 分、切泵超时事件
 2 分。
@@ -177,7 +242,8 @@ LA-215077  LA-215177  LA-217075
   -> RuleLoader.load_enabled()
   -> build_assessment_window(shift, rule_config)
   -> 点位 assessment_window 覆盖（如有）
-  -> Rule.evaluate(window.start_time, window.end_time)
+  -> 按 effective window 分组
+  -> Rule.evaluate(window.start_time, window.end_time, point_ids=group_point_ids)
   -> EvaluatedAssessmentEvent
   -> AssessmentScorer
   -> AssignedAssessmentEvent
@@ -310,3 +376,9 @@ dcs-performance run --at 2026-09-03T13:00:00 --output ./output
 命令使用现有生产排班配置解析包含 `--at` 的真实班次，执行所有启用规则，并原子
 发布 `result.json` 与每个启用 `(rule_id, point_id)` 的 PNG。零事件点同样进入 JSON
 并生成证据图。可用 `--service-url`、`--rules-dir` 与显式 `--overwrite` 调整运行。
+
+Each JSON point always contains the effective `assessment_window`, `status`, `data_status`,
+`score`, `image`, and `events`. The top-level `summary.data_quality` counts `ok_points`,
+`partial_points`, and `no_data_points`; `assessment_complete` is true only when the latter
+two counts are zero. `status=normal` together with `data_status=no_data` does not mean the
+assessment was completed successfully.

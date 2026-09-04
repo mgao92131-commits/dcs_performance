@@ -2,6 +2,10 @@
 
 `analog_trend_stability` 用于液位、压力、温度、流量、浓度等连续模拟量。规则只发现历史数据中的异常区间并返回 `AssessmentEvent`，班组归属、评分和汇总仍由 Engine 后续阶段处理。
 
+当前生产配置只有 `LICA-012019/PID1/PV.CV` 一个趋势点，但该点
+`enabled=false`，因此当前班次不执行趋势稳定性考核、不计分，也不生成该点的趋势
+证据图；本说明中的算法和配置字段用于后续启用时的审查。
+
 ## 每个 TAG 独立配置
 
 `parameters.points[]` 中的每一个对象都是一个完整的分析单元。它拥有自己的：
@@ -37,9 +41,9 @@ delta(t, W) = Trend(t) - Trend(t-W)
 
 非法或非有限值、Historian hole、CR hole、手工删除、手工插入、时间倒序以及超过 `max_gap_seconds` 的缺口都会切断有效数据段。趋势、插值和事件检测绝不跨段计算。
 
-规则级默认 `assessment_window` 仍必须保持两个 offset 都为 `0`。如果工艺上需要，Result Package 可以在单个点位中覆盖责任窗口偏移；这只改变该点的 `evaluate(start_time, end_time)` 责任范围，不会用责任窗口偏移伪造趋势预热数据。趋势所需的前后历史仍由规则按照每个 TAG 的参数自行规划。多个 TAG 若所需 `(left_padding, right_padding)` 相同，会共享一次 `get_histories()` 批量读取；不同参数的 TAG 会进入不同查询组。
+规则级默认 `assessment_window` 仍必须保持两个 offset 都为 `0`。如果工艺上需要，Result Package 可以在单个点位中覆盖责任窗口偏移；这只改变该点的 `evaluate(start_time, end_time, point_ids=...)` 责任范围，不会用责任窗口偏移伪造趋势预热数据。趋势所需的前后历史仍由规则按照每个 TAG 的参数自行规划。多个 TAG 若所需 `(left_padding, right_padding)` 相同，会共享一次 `get_histories()` 批量读取；不同参数的 TAG 会进入不同查询组。
 
-实际返回的事件总是裁剪到 `evaluate(start_time, end_time)`：
+实际返回的事件总是裁剪到 `evaluate(start_time, end_time, point_ids=...)`：
 
 ```text
 event.start_time >= start_time

@@ -37,6 +37,7 @@ def build_result_document(
             "point_count": delivery.point_count,
             "event_count": delivery.event_count,
             "total_score": delivery.total_score,
+            "data_quality": _data_quality_document(rules),
         },
         "rules": [_rule_document(rule) for rule in rules],
     }
@@ -61,20 +62,37 @@ def _rule_document(rule: RuleAssessmentResult) -> dict[str, Any]:
                 "score": point.score,
                 "image": point.image_path.replace("\\", "/"),
                 "events": [_event_document(event) for event in point.events],
-                **(
-                    {
-                        "assessment_window": {
-                            "start": point.window.start_time,
-                            "end": point.window.end_time,
-                        }
-                    }
-                    if point.window is not None
-                    else {}
-                ),
+                "assessment_window": {
+                    "start": point.window.start_time,
+                    "end": point.window.end_time,
+                },
                 **({"metadata": point.metadata} if point.metadata else {}),
             }
             for point in rule.points
         ],
+    }
+
+
+def _data_quality_document(
+    rules: tuple[RuleAssessmentResult, ...],
+) -> dict[str, Any]:
+    """Summarize point data quality without changing violation status."""
+
+    counts = {status: 0 for status in ("ok", "partial", "no_data")}
+    for rule in rules:
+        for point in rule.points:
+            if point.data_status not in counts:
+                raise ValueError(
+                    f"unsupported point data_status {point.data_status!r}"
+                )
+            counts[point.data_status] += 1
+    return {
+        "ok_points": counts["ok"],
+        "partial_points": counts["partial"],
+        "no_data_points": counts["no_data"],
+        "assessment_complete": (
+            counts["partial"] == 0 and counts["no_data"] == 0
+        ),
     }
 
 

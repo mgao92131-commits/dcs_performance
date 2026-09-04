@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime, timedelta
 from math import isfinite
 from typing import Any
 
 from dcs_performance.core.event import AssessmentEvent
+from dcs_performance.core.points import select_points
 from dcs_performance.data.client import DcsDataClient
 from dcs_performance.data.history_context import (
     DEFAULT_FORWARD_SEARCH_STEPS,
@@ -60,7 +61,10 @@ class Rule:
             raise ValueError("persistent_high_alarm parameters must be an object")
 
         raw_points = parameters.get("points")
-        self.points = _validate_points(raw_points)
+        self.all_points = _validate_points(raw_points)
+        self.points = tuple(
+            point for point in self.all_points if point.get("enabled", True)
+        )
         self.threshold_seconds = _validate_threshold(
             parameters.get("threshold_seconds")
         )
@@ -90,18 +94,25 @@ class Rule:
         self,
         start_time: datetime,
         end_time: datetime,
+        *,
+        point_ids: Collection[str] | None = None,
     ) -> list[AssessmentEvent]:
         """Evaluate the responsibility range, with a forward confirmation tail."""
 
         _validate_range(start_time, end_time)
-        if not self.points:
+        selected_points = select_points(
+            self.all_points,
+            point_ids,
+            rule_id=self.id,
+        )
+        if not selected_points:
             return []
         query_end = end_time + timedelta(
             seconds=self.threshold_seconds
         ) + CONFIRMATION_MARGIN
 
         events: list[AssessmentEvent] = []
-        for point in self.points:
+        for point in selected_points:
             point_id = point["id"]
             history_tag = point["history_tag"]
             samples = get_history_with_previous_sample(
@@ -182,11 +193,11 @@ class Rule:
         return events
 
 
-def _validate_points(raw_points: object) -> tuple[dict[str, str], ...]:
+def _validate_points(raw_points: object) -> tuple[dict[str, Any], ...]:
     if not isinstance(raw_points, list) or not raw_points:
         raise ValueError("persistent_high_alarm parameters.points must not be empty")
 
-    points: list[dict[str, str]] = []
+    points: list[dict[str, Any]] = []
     point_ids: set[str] = set()
     for index, raw_point in enumerate(raw_points):
         if not isinstance(raw_point, Mapping):
@@ -199,6 +210,7 @@ def _validate_points(raw_points: object) -> tuple[dict[str, str], ...]:
         if not isinstance(enabled, bool):
             raise ValueError(f"parameters.points[{index}].enabled must be boolean")
         if not enabled:
+            points.append({"id": point_id, "enabled": False})
             continue
         history_tag = _required_text(raw_point, "history_tag")
         points.append({"id": point_id, "history_tag": history_tag})

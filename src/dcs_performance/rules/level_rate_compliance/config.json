@@ -27,8 +27,8 @@
     "default_score_per_event": 1,
     "by_point": {
       "LICA-012019": {
-        "rate_down": 1,
-        "rate_up": 1
+        "rate_down": 2,
+        "rate_up": 2
       }
     }
   }

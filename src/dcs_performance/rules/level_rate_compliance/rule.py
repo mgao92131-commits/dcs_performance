@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
 from dcs_performance.core.event import AssessmentEvent
+from dcs_performance.core.points import select_points
 from dcs_performance.data.client import DcsDataClient
 
 from dcs_performance.rules.level_rate_compliance.config import (
@@ -44,12 +45,21 @@ class Rule:
         self.points = self.typed_config.points
         self.detector = LevelRateDetector()
 
-    def evaluate(self, start_time: datetime, end_time: datetime) -> list[AssessmentEvent]:
+    def evaluate(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        *,
+        point_ids: Collection[str] | None = None,
+    ) -> list[AssessmentEvent]:
         _validate_range(start_time, end_time)
         events: list[AssessmentEvent] = []
-        for point in self.points:
-            if not point.enabled:
-                continue
+        selected_points = select_points(
+            self.points,
+            point_ids,
+            rule_id=self.id,
+        )
+        for point in selected_points:
             lookback = point.rate_window_seconds + point.smoothing.window_seconds + point.max_gap_seconds
             observation_end = end_time + timedelta(
                 seconds=point.persistence_seconds + point.merge_gap_seconds

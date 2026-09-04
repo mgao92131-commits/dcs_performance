@@ -31,7 +31,9 @@ Historian 的质量标志、非 Good 的 `DeltaVStatus`、非有效的 `ArchiveS
 - 合并间隙：`assessment.merge_gap_seconds = 600`
 - 扰动判定：连续1小时极差 `max(metric) - min(metric) > 1.0 MPa`
 - 扰动剔除：`exclusion.remove_after_start_seconds = 7200`
+- 考核窗口：上班后 1 小时开始，至下个班上班前 1 小时结束
+- 每次确认的 `viscosity_low` 或 `viscosity_high` 事件计 2 分
 
 一分钟中位数是本规则固定算法的一部分，`aggregation` 不再配置 `enabled` 开关。
 
-示例默认 `enabled` 为 `false`，完成影子运行和现场核对后再改为 `true`。
+当前生产配置中该规则 `enabled=true`，`PI-2311001` 点位也处于启用状态。

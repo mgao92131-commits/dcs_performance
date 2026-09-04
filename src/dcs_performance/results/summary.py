@@ -36,7 +36,12 @@ ShiftSummary = ShiftAssessmentSummary
 
 
 class AssessmentSummarizer:
-    """Build a summary from scored events and optional configured point IDs."""
+    """Build a shift summary without imposing one window on all points.
+
+    The execution/delivery layer validates each event against its own point's
+    effective window. This stage only validates team and shift identity while
+    aggregating counts and scores.
+    """
 
     def __init__(
         self,
@@ -54,7 +59,6 @@ class AssessmentSummarizer:
         window: TimeRange | None = None,
         point_ids: Iterable[str] | None = None,
         rule_config: Mapping[str, object] | None = None,
-        allow_multiple_windows: bool = False,
     ) -> ShiftAssessmentSummary:
         events = list(assigned_events)
         configured_points = (
@@ -76,9 +80,6 @@ class AssessmentSummarizer:
                 team_id,
                 shift_start,
                 shift_end,
-                window_start,
-                window_end,
-                allow_multiple_windows=allow_multiple_windows,
             )
             point_id = _point_id(event)
             totals = point_totals.setdefault(point_id, [0.0, 0.0])
@@ -115,7 +116,6 @@ def build_shift_summary(
     points: Iterable[object] | None = None,
     configured_points: Iterable[object] | None = None,
     rule_config: Mapping[str, object] | None = None,
-    allow_multiple_windows: bool = False,
 ) -> ShiftAssessmentSummary:
     """Build one shift summary, optionally retaining zero-event configured points."""
 
@@ -135,7 +135,6 @@ def build_shift_summary(
         assigned_events,
         shift=shift,
         window=window,
-        allow_multiple_windows=allow_multiple_windows,
     )
 
 
@@ -203,10 +202,6 @@ def _validate_event_context(
     team_id: str,
     shift_start: datetime,
     shift_end: datetime,
-    window_start: datetime,
-    window_end: datetime,
-    *,
-    allow_multiple_windows: bool = False,
 ) -> None:
     if (event.team_id, event.shift_start, event.shift_end) != (
         team_id,
@@ -214,15 +209,6 @@ def _validate_event_context(
         shift_end,
     ):
         raise ValueError("assigned events from multiple shifts cannot be summarized")
-    if not allow_multiple_windows:
-        if event.window_start is not None and event.window_start != window_start:
-            raise ValueError(
-                "assigned events from multiple assessment windows cannot be summarized"
-            )
-        if event.window_end is not None and event.window_end != window_end:
-            raise ValueError(
-                "assigned events from multiple assessment windows cannot be summarized"
-            )
 
 
 def _point_id(event: AssignedAssessmentEvent) -> str:

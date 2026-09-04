@@ -99,7 +99,16 @@ def test_zero_event_and_disabled_points_are_delivered(tmp_path, shift):
     document = json.loads(result.result_json_path.read_text(encoding="utf-8"))
     assert document["schema_version"] == "1.0"
     assert document["summary"] == {
-        "rule_count": 1, "point_count": 1, "event_count": 0, "total_score": 0
+        "rule_count": 1,
+        "point_count": 1,
+        "event_count": 0,
+        "total_score": 0,
+        "data_quality": {
+            "ok_points": 0,
+            "partial_points": 0,
+            "no_data_points": 1,
+            "assessment_complete": False,
+        },
     }
     assert [point["point_id"] for point in document["rules"][0]["points"]] == ["ZERO"]
     point = document["rules"][0]["points"][0]
@@ -192,6 +201,29 @@ def test_point_windows_reach_visualizer_and_json_for_mixed_rule_windows(
             "end": "2026-09-03T19:50:00",
         },
     ]
+
+
+def test_single_point_window_override_is_accepted_with_events(tmp_path, shift):
+    received = []
+    config = _config(
+        "rule_a",
+        [{
+            "id": "POINT-1",
+            "assessment_window": {"start_offset_minutes": 30},
+        }],
+    )
+    loaded = [LoadedRule(Rule("rule_a", [_event()]), config)]
+
+    result = _manager(loaded, {"rule_a": Visualizer(received)}).deliver(shift, tmp_path)
+    document = json.loads(result.result_json_path.read_text(encoding="utf-8"))
+
+    assert received[0].window.start_time == datetime(2026, 9, 3, 8, 30)
+    assert received[0].events[0].window_start == datetime(2026, 9, 3, 8, 30)
+    assert received[0].events[0].window_end == datetime(2026, 9, 3, 20)
+    assert document["rules"][0]["points"][0]["event_count"] == 1
+    assert document["rules"][0]["points"][0]["assessment_window"]["start"] == (
+        "2026-09-03T08:30:00"
+    )
 
 
 def test_result_event_type_uses_existing_direction_metadata(tmp_path, shift):

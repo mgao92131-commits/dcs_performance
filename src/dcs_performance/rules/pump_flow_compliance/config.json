@@ -37,6 +37,36 @@
         "normal_min_flow": 110,
         "switching_min_flow": 100,
         "max_switch_duration_seconds": 600
+      },
+      {
+        "id": "217P01",
+        "pump_a_tag": "EU-217P01A/DC1/PV_D.CV",
+        "pump_b_tag": "EU-217P01B/DC1/PV_D.CV",
+        "flow_tag": "FIA-217079/AI1/PV.CV",
+        "running_value": "1",
+        "normal_min_flow": 110,
+        "switching_min_flow": 100,
+        "max_switch_duration_seconds": 600
+      },
+      {
+        "id": "215P05",
+        "pump_a_tag": "EU-215P05A/DC1/PV_D.CV",
+        "pump_b_tag": "EU-215P05B/DC1/PV_D.CV",
+        "flow_tag": "FIA-215174/AI1/PV.CV",
+        "running_value": "1",
+        "normal_min_flow": 110,
+        "switching_min_flow": 100,
+        "max_switch_duration_seconds": 600
+      },
+      {
+        "id": "215P03",
+        "pump_a_tag": "EU-215P03A/DC1/PV_D.CV",
+        "pump_b_tag": "EU-215P03B/DC1/PV_D.CV",
+        "flow_tag": "FIA-215074/AI1/PV.CV",
+        "running_value": "1",
+        "normal_min_flow": 110,
+        "switching_min_flow": 100,
+        "max_switch_duration_seconds": 600
       }
     ]
   },

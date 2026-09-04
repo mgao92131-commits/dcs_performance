@@ -112,7 +112,6 @@ def test_summary_can_aggregate_point_local_windows_when_explicitly_enabled():
         points=POINTS,
         shift=SHIFT,
         window=WINDOW,
-        allow_multiple_windows=True,
     )
 
     assert summary.event_count == 2

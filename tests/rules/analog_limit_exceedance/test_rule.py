@@ -26,8 +26,9 @@ def point(
     high_min=300,
     low_gap=20,
     high_gap=20,
+    max_events_per_window=None,
 ):
-    return {
+    result = {
         "id": point_id,
         "history_tag": tag,
         "enabled": enabled,
@@ -44,6 +45,9 @@ def point(
             "merge_gap_seconds": high_gap,
         },
     }
+    if max_events_per_window is not None:
+        result["max_events_per_window"] = max_events_per_window
+    return result
 
 
 def config(points):
@@ -104,6 +108,31 @@ def test_rule_reads_history_and_returns_low_event():
 
     assert event.data["event_type"] == "low_limit"
     assert event.message == "P 低限超限持续超过 5 分钟"
+
+
+def test_rule_caps_multiple_qualified_exceedances_per_point_window():
+    client = FakeDataClient(
+        {
+            "TAG-P": [
+                sample(START - timedelta(minutes=1), 100),
+                # First qualified occurrence: high side.
+                sample(START, 121),
+                sample(START + timedelta(minutes=6), 100),
+                # Second qualified occurrence: low side.
+                sample(START + timedelta(minutes=10), 79),
+                sample(START + timedelta(minutes=16), 100),
+            ]
+        }
+    )
+
+    events = Rule(
+        client,
+        config([point(max_events_per_window=1)]),
+    ).evaluate(START, END)
+
+    assert len(events) == 1
+    assert events[0].data["event_type"] == "high_limit"
+    assert events[0].data["point_id"] == "P"
 
 
 def test_rule_quality_hole_closes_previous_segment_and_does_not_bridge_new_abnormal_run():

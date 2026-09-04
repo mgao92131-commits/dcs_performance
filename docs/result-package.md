@@ -36,6 +36,12 @@ JSON 使用 UTF-8、`ensure_ascii=False`、`indent=2` 和 `allow_nan=False`。da
 为 `partial`；无有效历史数据仍生成带 “No valid history data” 提示的 PNG。网络、
 协议或绘图异常则使整次交付失败。
 
+`summary.data_quality` 汇总所有点的质量：`ok_points`、`partial_points` 和
+`no_data_points`。`assessment_complete` 只有在 `partial_points == 0` 且
+`no_data_points == 0` 时为 `true`。因此 `status=normal` 与 `data_status=no_data`
+仍然表示“没有 violation event”，不表示该点已经完成有效考核；数据质量不会被当作
+扣分事件。
+
 图片 X 轴固定为该点的实际 assessment window，并在窗口超出正式班次时标记班次
 边界。平滑、速率、趋势与状态重建所需的前后文按对应规则的查询规划读取，因此
 窗口边缘的派生曲线与规则检测使用同一处理逻辑；这些上下文样本不会写入 JSON。

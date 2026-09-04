@@ -169,14 +169,12 @@ class DeliveryManager:
                         f"Rule {execution.rule_id} returned event for unknown or disabled "
                         f"point_id {point_id!r}"
                     )
+                _validate_point_event_window(execution, evaluated)
             assigned = tuple(self.scorer.score(item) for item in execution.events)
             summary = AssessmentSummarizer(point_ids=point_ids).summarize(
                 assigned,
                 shift=shift,
                 window=execution.window,
-                allow_multiple_windows=_has_multiple_point_windows(
-                    execution.point_windows
-                ),
             )
             by_point: dict[str, list[AssignedAssessmentEvent]] = {
                 point_id: [] for point_id, _ in points
@@ -286,14 +284,19 @@ def _validate_artifact(path: Path, artifact: Any, expected_image_path: str) -> N
             raise DeliveryError(f"visualizer output is not a PNG: {path}")
 
 
-def _has_multiple_point_windows(
-    point_windows: Mapping[str, Any],
-) -> bool:
-    windows = {
-        (window.start_time, window.end_time)
-        for window in point_windows.values()
-    }
-    return len(windows) > 1
+def _validate_point_event_window(
+    execution: Any,
+    evaluated: Any,
+) -> None:
+    """Ensure an event carries the effective window of its own point."""
+
+    point_id = evaluated.event.data.get("point_id")
+    expected = execution.window_for_point(point_id)
+    if evaluated.window != expected:
+        raise DeliveryError(
+            f"Rule {execution.rule_id} event for point_id {point_id!r} has "
+            f"assessment window {evaluated.window!r}; expected {expected!r}"
+        )
 
 
 def _deduplicate_filename(

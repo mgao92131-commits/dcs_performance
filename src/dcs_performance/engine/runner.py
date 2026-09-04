@@ -1,7 +1,8 @@
 """Run one loaded rule for one concrete shift."""
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime
+from inspect import Parameter, signature
 from typing import Any
 
 from dcs_performance.core.event import AssessmentEvent
@@ -48,10 +49,12 @@ class RuleRunner:
     ) -> RuleExecutionResult:
         """Evaluate a rule while retaining context even when it finds nothing.
 
-        Rules keep the shared ``evaluate(start_time, end_time)`` contract.  If
-        enabled points use different windows, the runner invokes that same
-        method once per distinct window and routes returned events by their
-        configured ``point_id``.
+        Enabled points are grouped by effective assessment window. Each group
+        is passed to a point-aware rule as ``point_ids`` so the rule can limit
+        history reads and detector work to the requested points. A short-term
+        two-argument compatibility path is retained for legacy rules; those
+        rules are filtered after each call because they cannot provide the
+        point-level query optimization.
         """
 
         window = build_assessment_window(shift, loaded_rule.config)
@@ -65,11 +68,13 @@ class RuleRunner:
             for point_id, point_config in point_configs
         }
 
-        # Preserve the original one-call execution path whenever no point
-        # supplies an override.  This keeps rule behaviour and data-access
-        # costs unchanged for existing configurations.
-        if not any("assessment_window" in point for _, point in point_configs):
-            events = loaded_rule.rule.evaluate(window.start_time, window.end_time)
+        if not point_configs:
+            events = _invoke_evaluate(
+                loaded_rule.rule,
+                window.start_time,
+                window.end_time,
+                point_ids=None,
+            )
             evaluated = _evaluate_events(
                 events,
                 rule=loaded_rule,
@@ -86,26 +91,18 @@ class RuleRunner:
                     [],
                 ).append(point_id)
 
-            # The public rule protocol remains evaluate(start, end).  To
-            # honour different point windows without changing that protocol,
-            # evaluate once per distinct effective window and retain only the
-            # events belonging to the points in that window group.
+            supports_point_ids = _supports_point_ids(loaded_rule.rule)
             for (start_time, end_time), group_point_ids in groups.items():
                 group_window = TimeRange(start_time, end_time)
-                events = loaded_rule.rule.evaluate(
+                events = _invoke_evaluate(
+                    loaded_rule.rule,
                     group_window.start_time,
                     group_window.end_time,
+                    point_ids=group_point_ids,
                 )
-                for evaluated in _evaluate_events(
-                    events,
-                    rule=loaded_rule,
-                    shift=shift,
-                    window=group_window,
-                ):
-                    point_id = evaluated.event.data.get("point_id")
+                for event in events:
+                    point_id = event.data.get("point_id")
                     if not isinstance(point_id, str) or not point_id:
-                        # _evaluate_events already raises; this guard keeps
-                        # the type narrowing explicit for the filter below.
                         raise ValueError(
                             f"Rule {loaded_rule.id} returned event without point_id"
                         )
@@ -114,8 +111,26 @@ class RuleRunner:
                             f"Rule {loaded_rule.id} returned event for unknown or "
                             f"disabled point_id {point_id!r}"
                         )
-                    if point_id in group_point_ids:
-                        evaluated_items.append(evaluated)
+                    if point_id not in group_point_ids:
+                        if supports_point_ids:
+                            raise ValueError(
+                                f"Rule {loaded_rule.id} returned event for point_id "
+                                f"{point_id!r} outside requested point_ids"
+                            )
+                        # Legacy rules return the complete rule result. Keep
+                        # only this group's events because they cannot accept
+                        # the point subset keyword.
+                        continue
+                    evaluated_items.append(
+                        EvaluatedAssessmentEvent(
+                            rule_id=loaded_rule.id,
+                            rule_name=loaded_rule.name,
+                            shift=shift,
+                            window=group_window,
+                            event=event,
+                            config=loaded_rule.config,
+                        )
+                    )
             evaluated = tuple(evaluated_items)
 
         return RuleExecutionResult(
@@ -130,7 +145,7 @@ class RuleRunner:
 
 
 def _evaluate_events(
-    events: list[AssessmentEvent],
+    events: Iterable[AssessmentEvent],
     *,
     rule: LoadedRule,
     shift: Shift,
@@ -148,6 +163,40 @@ def _evaluate_events(
             config=rule.config,
         )
         for event in events
+    )
+
+
+def _invoke_evaluate(
+    rule: object,
+    start_time: datetime,
+    end_time: datetime,
+    *,
+    point_ids: list[str] | None,
+) -> Iterable[AssessmentEvent]:
+    """Invoke a current or legacy rule without masking rule exceptions."""
+
+    evaluate = getattr(rule, "evaluate", None)
+    if not callable(evaluate):
+        raise TypeError("loaded rule must provide evaluate()")
+    if point_ids is not None and _supports_point_ids(rule):
+        return evaluate(start_time, end_time, point_ids=point_ids)
+    return evaluate(start_time, end_time)
+
+
+def _supports_point_ids(rule: object) -> bool:
+    """Return whether ``rule.evaluate`` accepts the point subset keyword."""
+
+    evaluate = getattr(rule, "evaluate", None)
+    if not callable(evaluate):
+        return False
+    try:
+        parameters = signature(evaluate).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.name == "point_ids"
+        or parameter.kind is Parameter.VAR_KEYWORD
+        for parameter in parameters
     )
 
 

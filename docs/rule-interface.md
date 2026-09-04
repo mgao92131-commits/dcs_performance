@@ -11,9 +11,20 @@ class AssessmentRule(Protocol):
         self,
         start_time: datetime,
         end_time: datetime,
+        *,
+        point_ids: Collection[str] | None = None,
     ) -> list[AssessmentEvent]:
         ...
 ```
+
+`point_ids=None` evaluates all enabled points. An explicit collection evaluates
+only those enabled points; `[]` returns an empty list without reading
+Historian data. Unknown or disabled point IDs are configuration errors and
+must raise `ValueError`. The Runner groups points by their effective
+assessment window and invokes one call per window group, so a rule must apply
+the subset to both its history queries and detector calculations. A temporary
+two-argument implementation may still be called by the Runner for backwards
+compatibility, but it cannot receive the point-level query optimization.
 
 规则负责回答：“在这段时间内发生了哪些需要考核的事件？”
 
@@ -23,7 +34,7 @@ class AssessmentRule(Protocol):
 
 ```python
 rule = Rule(data_client=data_client, config=config)
-events = rule.evaluate(start_time, end_time)
+events = rule.evaluate(start_time, end_time, point_ids=None)
 ```
 
 ## 返回模型
